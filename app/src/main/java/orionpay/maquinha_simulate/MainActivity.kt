@@ -838,254 +838,6 @@ fun DiagRow(
 }
 
 // =============================================================================
-// LÓGICA DE TRANSAÇÃO
-// =============================================================================
-
-private const val API_BASE      = "http://192.168.56.1:8080/api/v1"
-private const val API_URL       = "$API_BASE/transactions/authorize"
-private const val API_EMAIL_URL = "$API_BASE/transactions/{transactionId}/send-email"
-private const val MERCHANT_ID   = "3f90ed27-6eca-4bf6-a4e1-607ac55ea73b"
-private const val AUTH_URL      = "http://192.168.56.1:8080/api/auth/login"
-private const val AUTH_EMAIL    = "admin@orionpay.com.br"
-private const val AUTH_PASSWORD = "password123"
-
-private object AuthSession {
-    @Volatile var token: String? = null
-}
-
-fun buildTxPayload(
-    merchantId: String, amount: Double, productType: String,
-    terminalSn: String, externalRef: String, entryMode: String,
-    cardBrand: String, cardHolder: String, cardNumber: String,
-    expirationDate: String, cvv: String,
-    // Campos EMV opcionais — enviados quando disponíveis
-    cryptogram: String = "",
-    atc: String = "",
-    iad: String = "",
-    aip: String = "",
-    tvr: String = ""
-): JSONObject = JSONObject().apply {
-    // ── Campos obrigatórios ───────────────────────────────────────
-    put("merchantId",        merchantId)
-    put("amount",            java.math.BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP))
-    put("productType",       productType)
-    put("terminalSn",        terminalSn)
-    put("externalReference", externalRef)
-    put("entryMode",         entryMode)
-    put("cardBrand",         cardBrand)
-    put("cardHolderName",    cardHolder.ifEmpty { "NAO INFORMADO" })
-    put("cardNumber",        cardNumber.filter { it.isDigit() })
-    put("expirationDate",    expirationDate)
-    put("cvv",               cvv)
-    put("currencyCode",      "986")
-    put("countryCode",       "076")
-    put("transactionDate",   isoNow())
-    // ── Campos EMV complementares (enviados se presentes) ─────────
-    if (cryptogram.isNotEmpty()) put("applicationCryptogram", cryptogram)
-    if (atc.isNotEmpty())        put("atc",                   atc)
-    if (iad.isNotEmpty())        put("issuerApplicationData", iad)
-    if (aip.isNotEmpty())        put("aip",                   aip)
-    if (tvr.isNotEmpty())        put("tvr",                   tvr)
-}
-
-suspend fun fetchAuthToken(): String? = withContext(Dispatchers.IO) {
-    val cached = AuthSession.token
-    if (!cached.isNullOrBlank()) return@withContext cached
-
-    try {
-        val conn = (URL(AUTH_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Accept", "application/json")
-            doOutput = true
-            connectTimeout = 10_000
-            readTimeout = 20_000
-        }
-
-        val body = JSONObject().apply {
-            put("email", AUTH_EMAIL)
-            put("password", AUTH_PASSWORD)
-        }.toString()
-        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
-
-        val code = conn.responseCode
-        val raw = runCatching {
-            (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.readText() ?: ""
-        }.getOrDefault("")
-
-        if (code !in 200..299) {
-            Log.e("ORION_AUTH", "Auth failed HTTP $code")
-            return@withContext null
-        }
-
-        val json = runCatching { JSONObject(raw) }.getOrNull()
-        val token = json?.optString("token")
-            ?.ifEmpty { json.optString("accessToken") }
-            ?.ifEmpty { json.optString("access_token") }
-            ?.ifEmpty { json.optString("jwt") }
-            ?: ""
-
-        if (token.isBlank()) {
-            Log.e("ORION_AUTH", "Auth response missing token")
-            return@withContext null
-        }
-
-        AuthSession.token = token
-        token
-    } catch (e: Exception) {
-        Log.e("ORION_AUTH", "Auth error", e)
-        null
-    }
-}
-
-suspend fun sendTransactionRaw(payload: JSONObject): Pair<TxResult, String> = withContext(Dispatchers.IO) {
-    val token = fetchAuthToken()
-    if (token.isNullOrBlank()) {
-        return@withContext Pair(
-            TxResult(TxState.ERROR, message = "Falha na autenticacao"),
-            "Auth failed"
-        )
-    }
-    try {
-        val diagKey = java.util.UUID.randomUUID().toString()
-        val conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type",      "application/json; charset=utf-8")
-            setRequestProperty("Accept",             "application/json")
-            setRequestProperty("X-Merchant-Id",      payload.optString("merchantId", MERCHANT_ID))
-            setRequestProperty("X-Idempotency-Key",  diagKey)
-            setRequestProperty("Authorization",      "Bearer $token")
-            doOutput       = true
-            connectTimeout = 15_000
-            readTimeout    = 30_000
-        }
-        val body = payload.toString()
-        Log.d("ORION_DIAG", "POST $API_URL  key=$diagKey\n${maskSensitiveLog(body)}")
-        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
-
-        val code = conn.responseCode
-        val raw  = runCatching {
-            (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.readText() ?: ""
-        }.getOrDefault("")
-        Log.d("ORION_DIAG", "HTTP $code <- $raw")
-
-        val json = runCatching { JSONObject(raw) }.getOrNull()
-        val result = if (code in 200..299) {
-            TxResult(
-                state         = TxState.SUCCESS,
-                message       = json?.optString("message", "Aprovado") ?: "Aprovado",
-                authCode      = json?.optString("authorizationCode") ?: json?.optString("authCode") ?: "",
-                nsu           = json?.optString("nsu") ?: json?.optString("nsuHost") ?: "",
-                transactionId = json?.optString("id") ?: json?.optString("transactionId") ?: json?.optString("transaction_id") ?: "",
-                rawJson       = raw
-            )
-        } else {
-            TxResult(
-                state   = TxState.ERROR,
-                message = json?.optString("message") ?: json?.optString("error") ?: "HTTP $code",
-                rawJson = raw
-            )
-        }
-        Pair(result, "HTTP $code\n\n$raw")
-    } catch (e: java.net.ConnectException) {
-        Pair(TxResult(TxState.ERROR, message = "Conexao recusada"), "ConnectException: ${e.message}")
-    } catch (e: java.net.SocketTimeoutException) {
-        Pair(TxResult(TxState.ERROR, message = "Timeout"), "SocketTimeoutException: ${e.message}")
-    } catch (e: Exception) {
-        Pair(TxResult(TxState.ERROR, message = e.message ?: "Erro desconhecido"), "${e.javaClass.simpleName}: ${e.message}")
-    }
-}
-
-fun maskSensitiveLog(json: String): String {
-    return json
-        .replace(Regex("\"cardNumber\"\\s*:\\s*\"[^\"]+\""))  { "\"cardNumber\":\"****\"" }
-        .replace(Regex("\"cvv\"\\s*:\\s*\"[^\"]+\""))          { "\"cvv\":\"***\"" }
-        .replace(Regex("\"expirationDate\"\\s*:\\s*\"[^\"]+\"")) { "\"expirationDate\":\"**/**\"" }
-        .replace(Regex("\"cardHolderName\"\\s*:\\s*\"[^\"]+\"")) { m ->
-            val name = m.value.substringAfter(":").trim().trim('"')
-            val masked = name.take(1) + "*".repeat(maxOf(name.length - 2, 1)) + name.takeLast(1)
-            "\"cardHolderName\":\"$masked\""
-        }
-}
-
-fun isoNow(): String {
-    val c = Calendar.getInstance()
-    return "%04d-%02d-%02dT%02d:%02d:%02d".format(
-        c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH),
-        c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), c.get(Calendar.SECOND)
-    )
-}
-
-suspend fun sendTransaction(
-    payload: JSONObject,
-    idempotencyKey: String = java.util.UUID.randomUUID().toString()
-): TxResult = withContext(Dispatchers.IO) {
-    Log.d("ORION_IDEM", "Enviando — X-Idempotency-Key: $idempotencyKey")
-    val token = fetchAuthToken()
-    if (token.isNullOrBlank()) {
-        return@withContext TxResult(TxState.ERROR, message = "Falha na autenticacao")
-    }
-    try {
-        val conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type",       "application/json; charset=utf-8")
-            setRequestProperty("Accept",              "application/json")
-            setRequestProperty("X-Merchant-Id",       payload.optString("merchantId", MERCHANT_ID))
-            setRequestProperty("X-Idempotency-Key",   idempotencyKey)
-            setRequestProperty("Authorization",       "Bearer $token")
-            doOutput       = true
-            connectTimeout = 15_000
-            readTimeout    = 30_000
-        }
-        val body = payload.toString()
-        Log.d("ORION_TX", "POST $API_URL\n${maskSensitiveLog(body)}")
-        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
-
-        val code = conn.responseCode
-        val resp = runCatching {
-            (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.readText() ?: ""
-        }.getOrDefault("")
-        Log.d("ORION_TX", "HTTP $code ← $resp")
-
-        if (code in 200..299) {
-            val json = runCatching { JSONObject(resp) }.getOrNull()
-            TxResult(
-                state         = TxState.SUCCESS,
-                message       = json?.optString("message", "Aprovado") ?: "Aprovado",
-                authCode      = json?.optString("authorizationCode")
-                    ?: json?.optString("authCode")
-                    ?: json?.optString("authorization_code") ?: "",
-                nsu           = json?.optString("nsu") ?: json?.optString("nsuHost") ?: "",
-                transactionId = json?.optString("id")
-                    ?: json?.optString("transactionId")
-                    ?: json?.optString("transaction_id") ?: "",
-                rawJson       = resp
-            )
-        } else {
-            val json = runCatching { JSONObject(resp) }.getOrNull()
-            TxResult(
-                state   = TxState.ERROR,
-                message = json?.optString("message")
-                    ?: json?.optString("error")
-                    ?: json?.optString("detail")
-                    ?: "Erro HTTP $code",
-                rawJson = resp
-            )
-        }
-    } catch (e: java.net.ConnectException) {
-        TxResult(TxState.ERROR, message = "Servidor indisponivel")
-    } catch (e: java.net.SocketTimeoutException) {
-        TxResult(TxState.ERROR, message = "Timeout")
-    } catch (e: Exception) {
-        Log.e("ORION_TX", "Erro", e)
-        TxResult(TxState.ERROR, message = e.message ?: "Erro desconhecido")
-    }
-}
-
-// =============================================================================
 // THEME
 // =============================================================================
 @Composable
@@ -1100,76 +852,15 @@ fun OrionPayTheme(content: @Composable () -> Unit) {
     )
 }
 
-@Composable
-fun orionTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor    = OrionBlue,
-    unfocusedBorderColor  = OrionNavyLight,
-    focusedTextColor      = OrionText,
-    unfocusedTextColor    = OrionText,
-    cursorColor           = OrionBlue,
-    focusedContainerColor   = OrionNavyMid,
-    unfocusedContainerColor = OrionNavyMid,
-)
-
-@Composable
-fun OrionHeader(showBack: Boolean, onBack: () -> Unit) {
-    val statusPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(OrionNavyMid)
-            .padding(top = statusPad + 10.dp, bottom = 10.dp, start = 12.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (showBack) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, null, tint = OrionText, modifier = Modifier.size(20.dp))
-            }
-        }
-        Text(
-            "OrionPay",
-            color = OrionText,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-fun FlowHeader(currentStep: Int, totalSteps: Int, onBack: () -> Unit) {
-    val statusPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(OrionNavyMid)
-            .padding(top = statusPad + 8.dp, bottom = 8.dp, start = 12.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.Default.ArrowBack, null, tint = OrionText, modifier = Modifier.size(20.dp))
-        }
-        Text(
-            "Etapa $currentStep de $totalSteps",
-            color = OrionTextMuted,
-            fontSize = 13.sp,
-            modifier = Modifier.weight(1f)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            repeat(totalSteps) { idx ->
-                Box(
-                    Modifier
-                        .size(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (idx + 1 == currentStep) OrionBlue else OrionNavyLight)
-                )
-            }
-        }
-    }
-}
 
 // =============================================================================
 // TELA DE TRANSAÇÃO — FLUXO DE 6 ETAPAS
+// Etapa 1: Valor
+// Etapa 2: Forma de pagamento
+// Etapa 3: Aproxime o cartão (leitura NFC acontece aqui)
+// Etapa 4: Processando (chama API)
+// Etapa 5: Resultado
+// (FlowHeader mostra 1-5 internamente; os labels externos são ajustados)
 // =============================================================================
 
 @Composable
@@ -1190,16 +881,22 @@ fun TransactionScreen(
     var terminalSn      by remember { mutableStateOf("POS-ORION-992") }
     var extRef          by remember { mutableStateOf("PEDIDO-${System.currentTimeMillis() % 100000}") }
 
+    // ── IDEMPOTÊNCIA ────────────────────────────────────────────────────────
+    // Gerada uma vez ao entrar na etapa 4 e mantida em memória para retries.
+    // Só é resetada quando o usuário inicia uma NOVA venda.
     var idempotencyKey  by remember { mutableStateOf("") }
+    // Bloqueia múltiplos cliques / disparos simultâneos
     var isSubmitting    by remember { mutableStateOf(false) }
 
     val amountDouble    = (rawAmount.toLongOrNull() ?: 0L) / 100.0
     val formattedAmount = java.text.NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(amountDouble)
 
+    // Função de envio que preserva a chave para retries
     fun submitTransaction() {
-        if (isSubmitting) return
+        if (isSubmitting) return          // bloqueia clique duplo
         isSubmitting = true
 
+        // Gera a chave APENAS na primeira tentativa; retry reutiliza a mesma
         if (idempotencyKey.isEmpty()) {
             idempotencyKey = java.util.UUID.randomUUID().toString()
         }
@@ -1218,6 +915,7 @@ fun TransactionScreen(
                 cardHolder     = card?.holder ?: "",
                 cardNumber     = card?.panRaw ?: "",
                 expirationDate = card?.expiry ?: "",
+                // CVV só é necessário para MANUAL/CONTACTLESS — CHIP usa criptograma
                 cvv            = if ((card?.entryMode ?: "CHIP") == "CHIP") ""
                 else card?.cvv2?.ifEmpty { "" } ?: "",
                 cryptogram     = card?.cryptogram ?: "",
@@ -1226,7 +924,7 @@ fun TransactionScreen(
                 aip            = card?.aip ?: "",
                 tvr            = card?.tvr ?: ""
             )
-            txResult     = sendTransaction(payload, idempotencyKey)
+            txResult    = sendTransaction(payload, idempotencyKey)
             isSubmitting = false
             step         = 5
         }
@@ -1284,12 +982,14 @@ fun TransactionScreen(
                 )
 
                 4 -> {
+                    // Loading overlay — bloqueia interação durante envio
                     StepProcessing(amount = formattedAmount)
                     LaunchedEffect(Unit) { submitTransaction() }
                 }
 
                 5 -> {
                     val result = txResult
+                    // Backend retornou que já processou (Redis/idempotência) — trata como sucesso
                     val effectiveSuccess = result?.state == TxState.SUCCESS ||
                             result?.rawJson?.contains("already processed", ignoreCase = true) == true ||
                             result?.rawJson?.contains("idempotent",        ignoreCase = true) == true
@@ -1315,18 +1015,19 @@ fun TransactionScreen(
                         amount      = formattedAmount,
                         product     = selectedProduct,
                         comprovante = comp,
+                        // Retry: volta para etapa 4 MANTENDO a idempotencyKey
                         canRetry    = result?.isRetryable() == true,
                         onRetry     = {
                             txResult     = null
                             isSubmitting = false
-                            step         = 4
+                            step         = 4   // idempotencyKey permanece intacta
                         },
                         onNewSale   = {
                             step           = 1
                             rawAmount      = ""
                             cardData       = null
                             txResult       = null
-                            idempotencyKey = ""
+                            idempotencyKey = ""  // nova venda = nova chave
                             isSubmitting   = false
                             nfcStatus      = "Aguardando cartão..."
                             nfcError       = false
@@ -1338,12 +1039,13 @@ fun TransactionScreen(
             }
         }
 
+        // Loading overlay global — impede qualquer toque durante envio
         if (isSubmitting) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .clickable(enabled = false) {},
+                    .clickable(enabled = false) {},   // consome todos os eventos
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1356,6 +1058,7 @@ fun TransactionScreen(
     }
 }
 
+// ─── Componente: tecla do teclado numérico com efeito de toque verde ─────────
 @Composable
 fun RowScope.NumPadKey(key: String, onTap: () -> Unit) {
     val isBs  = key == "⌫"
@@ -1388,6 +1091,7 @@ fun RowScope.NumPadKey(key: String, onTap: () -> Unit) {
             },
         contentAlignment = Alignment.Center
     ) {
+        // Flash verde arredondado
         Box(
             Modifier
                 .fillMaxSize()
@@ -1395,6 +1099,7 @@ fun RowScope.NumPadKey(key: String, onTap: () -> Unit) {
                 .clip(RoundedCornerShape(14.dp))
                 .background(OrionGreenTap.copy(alpha = 0.35f))
         )
+        // Conteúdo com escala
         Box(
             Modifier
                 .fillMaxSize()
@@ -1415,6 +1120,7 @@ fun RowScope.NumPadKey(key: String, onTap: () -> Unit) {
     }
 }
 
+// ─── Etapa 1: Valor ───────────────────────────────────────────────────────────
 @Composable
 fun StepAmount(
     formattedAmount: String, rawAmount: String,
@@ -1438,6 +1144,7 @@ fun StepAmount(
             )
         }
 
+        // Teclado numérico + botão próximo
         val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             Modifier
@@ -1474,6 +1181,7 @@ fun StepAmount(
     }
 }
 
+// ─── Etapa 4: Forma de pagamento ──────────────────────────────────────────────
 @Composable
 fun StepPaymentMethod(
     amount: String, selected: ProductType,
@@ -1492,6 +1200,7 @@ fun StepPaymentMethod(
             )
             Spacer(Modifier.height(6.dp))
 
+            // Chip do valor
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Valor da venda", color = OrionTextMuted, fontSize = 13.sp)
                 Spacer(Modifier.width(8.dp))
@@ -1510,6 +1219,7 @@ fun StepPaymentMethod(
             Spacer(Modifier.height(10.dp))
         }
 
+        // Lista de produtos
         Column(
             Modifier
                 .fillMaxWidth()
@@ -1527,6 +1237,7 @@ fun StepPaymentMethod(
                         .padding(vertical = 16.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Ícone do produto
                     Box(
                         Modifier
                             .size(36.dp)
@@ -1572,6 +1283,7 @@ fun StepPaymentMethod(
     }
 }
 
+// ─── Etapa 3: Aguardando aproximar cartão ─────────────────────────────────────
 @Composable
 fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: Boolean, onNext: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "nfc")
@@ -1587,6 +1299,7 @@ fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: 
     ) {
         Spacer(Modifier.weight(1f))
 
+        // Ícone NFC animado
         Box(contentAlignment = Alignment.Center) {
             Box(
                 Modifier
@@ -1615,7 +1328,7 @@ fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: 
         Text(
             "Aproxime o cartão ou dispositivo"+
                     "atrás deste celular",
-            color     = Color.White,
+                    color     = Color.White,
             fontSize  = 18.sp,
             fontWeight= FontWeight.Bold,
             textAlign = TextAlign.Center,
@@ -1624,6 +1337,7 @@ fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: 
 
         Spacer(Modifier.weight(1f))
 
+        // Status da leitura NFC
         AnimatedVisibility(visible = hasError) {
             Box(
                 Modifier
@@ -1640,6 +1354,7 @@ fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: 
 
         Spacer(Modifier.height(16.dp))
 
+        // Rodapé com valor
         val navPad3 = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             Modifier
@@ -1655,6 +1370,7 @@ fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: 
     }
 }
 
+// ─── Etapa 6: Processando ────────────────────────────────────────────────────
 @Composable
 fun StepProcessing(amount: String) {
     val infiniteTransition = rememberInfiniteTransition(label = "proc")
@@ -1698,6 +1414,7 @@ fun StepProcessing(amount: String) {
     }
 }
 
+// ─── Etapa 7: Resultado ──────────────────────────────────────────────────────
 @Composable
 fun StepResult(
     result: TxResult?, amount: String, product: ProductType,
@@ -1714,6 +1431,7 @@ fun StepResult(
         ComprovanteScreen(
             data          = comprovante,
             onClose       = { showComprovante = false },
+            // onNewSale reseta todo o estado do fluxo e volta para a etapa 1
             onBackToHome  = onNewSale
         )
         return
@@ -1725,6 +1443,7 @@ fun StepResult(
     ) {
         Spacer(Modifier.weight(1f))
 
+        // Ícone de resultado
         Box(
             Modifier
                 .size(120.dp)
@@ -1759,6 +1478,7 @@ fun StepResult(
 
         Spacer(Modifier.height(20.dp))
 
+        // Detalhes
         Column(
             Modifier
                 .padding(horizontal = 24.dp)
@@ -1790,6 +1510,7 @@ fun StepResult(
 
         Spacer(Modifier.weight(1f))
 
+        // Botões de ação
         val navPad4 = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 20.dp + navPad4)) {
             if (ok) {
@@ -1805,6 +1526,8 @@ fun StepResult(
                 }
                 Spacer(Modifier.height(10.dp))
             }
+            // Retry — só aparece em erros de rede (timeout/sem conexão)
+            // Reutiliza a mesma X-Idempotency-Key para evitar cobrança dupla
             if (!ok && canRetry) {
                 Button(
                     onClick  = onRetry,
@@ -1841,6 +1564,7 @@ fun StepResult(
     }
 }
 
+// ─── Tela de Comprovante ─────────────────────────────────────────────────────
 @Composable
 fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: () -> Unit = onClose) {
     val context      = androidx.compose.ui.platform.LocalContext.current
@@ -1855,7 +1579,10 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
     var sendApiError by remember { mutableStateOf("") }
 
     Box(Modifier.fillMaxSize().background(OrionNavy)) {
+
+        // ── Conteúdo principal ────────────────────────────────────────────
         Column(Modifier.fillMaxSize()) {
+            // Header
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1880,6 +1607,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                 }
             }
 
+            // Body scrollável
             Column(
                 Modifier
                     .weight(1f)
@@ -1888,6 +1616,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
             ) {
                 Spacer(Modifier.height(24.dp))
 
+                // Cabeçalho do comprovante
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -1936,6 +1665,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
 
                 Spacer(Modifier.height(24.dp))
 
+                // Seção de e-mail
                 Text("Enviar comprovante por e-mail",
                     color = OrionText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
@@ -1989,6 +1719,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                         }
                         sending = true
                         sendApiError = ""
+                        // Tudo no mesmo scope.launch — snackbarHost acessível aqui
                         scope.launch {
                             val emailCapture = email
                             val apiResult = callSendEmailApi(
@@ -2052,6 +1783,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
             }
         }
 
+        // Snackbar sobreposto no topo do Box — sempre visível
         SnackbarHost(
             hostState = snackbarHost,
             modifier  = Modifier
@@ -2086,9 +1818,11 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                 }
             }
         }
-    }
+    } // fecha Box
 }
 
+
+// ── Seção do comprovante ──────────────────────────────────────────────────────
 @Composable
 fun CompSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
@@ -2133,6 +1867,7 @@ fun CompRow(label: String, value: String) {
     HorizontalDivider(color = OrionNavyLight.copy(alpha = 0.5f))
 }
 
+// ── Helpers de e-mail ─────────────────────────────────────────────────────────
 fun isValidEmail(email: String): Boolean =
     android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
 
@@ -2238,6 +1973,8 @@ fun buildComprovanteHtml(data: ComprovanteData): String = """
 </html>
 """
 
+// Chama API REST de envio de e-mail: POST /transactions/{transactionId}/send-email
+// Retorna Pair(sucesso, mensagemErro)
 suspend fun callSendEmailApi(
     transactionId: String,
     email: String
@@ -2279,6 +2016,547 @@ suspend fun callSendEmailApi(
     } catch (e: Exception) {
         Log.e("ORION_EMAIL", "Erro", e)
         Pair(false, e.message ?: "Erro desconhecido")
+    }
+}
+
+
+// ─── Header com indicador de etapas ──────────────────────────────────────────
+@Composable
+fun FlowHeader(currentStep: Int, totalSteps: Int, onBack: () -> Unit) {
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(OrionNavyMid)
+            .padding(top = statusBarHeight + 12.dp, bottom = 14.dp, start = 20.dp, end = 20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.ArrowBack, null, tint = OrionText, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            // Bolinhas de etapa
+            Row(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                (1..totalSteps).forEach { step ->
+                    val isDone    = step < currentStep
+                    val isCurrent = step == currentStep
+                    // Bolinha
+                    Box(
+                        Modifier
+                            .size(if (isCurrent) 30.dp else 22.dp)
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(
+                                when {
+                                    isCurrent -> OrionBlue
+                                    isDone    -> OrionSuccess
+                                    else      -> OrionNavyLight
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isDone) {
+                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                        } else {
+                            Text(
+                                "$step",
+                                color    = if (isCurrent) Color.White else OrionTextSub,
+                                fontSize = if (isCurrent) 13.sp else 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    // Linha entre bolinhas
+                    if (step < totalSteps) {
+                        Box(
+                            Modifier
+                                .width(14.dp)
+                                .height(2.dp)
+                                .background(if (isDone) OrionSuccess else OrionNavyLight)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(32.dp))
+        }
+    }
+}
+// =============================================================================
+// COMPONENTES UI
+// =============================================================================
+
+@Composable
+fun OrionHeader(showBack: Boolean, onBack: () -> Unit = {}) {
+    // statusBarsPadding() garante que o header não fique sob a status bar (edge-to-edge)
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(OrionNavyMid)
+            .padding(top = statusBarHeight + 12.dp, bottom = 12.dp, start = 20.dp, end = 20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (showBack) {
+            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = OrionText)
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(OrionBlue),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Shield, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text("OrionPay", color = OrionText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(OrionNavyLight)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Lock, contentDescription = null, tint = OrionSuccess, modifier = Modifier.size(11.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Seguro", color = OrionSuccess, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+fun CardInfoPanel(brand: String, holder: String, number: String, expiry: String, entry: String) {
+    val brandColor = when (brand.uppercase()) {
+        "VISA"       -> Color(0xFF60A5FA)
+        "MASTERCARD" -> Color(0xFFFC8181)
+        "ELO"        -> Color(0xFFFFD700)
+        "AMEX"       -> Color(0xFF6EE7B7)
+        else          -> OrionBlue
+    }
+    Box(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brush.linearGradient(listOf(OrionNavyMid, OrionNavyLight)))
+            .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+            .padding(18.dp)
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(width=30.dp, height=22.dp).clip(RoundedCornerShape(3.dp)).background(OrionWarning.copy(alpha=0.85f)))
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(brand.ifEmpty { "—" }, color = brandColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(entry, color = OrionTextMuted, fontSize = 11.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Default.CreditCard, contentDescription = null, tint = OrionTextSub, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                maskDisplay(number).ifEmpty { "•••• •••• •••• ••••" },
+                color = OrionText, fontSize = 16.sp, fontWeight = FontWeight.Medium,
+                letterSpacing = 2.sp, fontFamily = FontFamily.Monospace
+            )
+            Spacer(Modifier.height(10.dp))
+            Row {
+                Column {
+                    Text("TITULAR", color = OrionTextSub, fontSize = 10.sp)
+                    Text(holder.ifEmpty { "—" }.uppercase(), color = OrionText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.width(28.dp))
+                Column {
+                    Text("VALIDADE", color = OrionTextSub, fontSize = 10.sp)
+                    Text(expiry.ifEmpty { "—" }, color = OrionText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AmountInput(
+    rawAmount: String, formatted: String,
+    onDigit: (String) -> Unit, onBackspace: () -> Unit, onClear: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(OrionNavyMid)
+            .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+            .padding(18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            formatted,
+            color      = if (rawAmount.isEmpty()) OrionTextMuted else OrionText,
+            fontSize   = 34.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign  = TextAlign.Center
+        )
+        Spacer(Modifier.height(14.dp))
+        HorizontalDivider(color = OrionNavyLight)
+        Spacer(Modifier.height(14.dp))
+        listOf(
+            listOf("1","2","3"),
+            listOf("4","5","6"),
+            listOf("7","8","9"),
+            listOf("C","0","⌫")
+        ).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { key ->
+                    Box(
+                        Modifier.weight(1f).height(60.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                when (key) {
+                                    "C"  -> OrionError.copy(alpha = 0.15f)
+                                    "⌫" -> OrionNavyLight.copy(alpha = 0.8f)
+                                    else -> OrionNavyLight.copy(alpha = 0.5f)
+                                }
+                            )
+                            .clickable {
+                                when (key) { "⌫" -> onBackspace(); "C" -> onClear(); else -> onDigit(key) }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(key, color = if (key == "C") OrionError else OrionText, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+fun ProductSelector(selected: ProductType, onSelect: (ProductType) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(OrionNavyMid)
+            .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+    ) {
+        ProductType.entries.forEachIndexed { idx, pt ->
+            Row(
+                Modifier.fillMaxWidth()
+                    .clickable { onSelect(pt) }
+                    .background(if (pt == selected) OrionBlue.copy(alpha = 0.12f) else Color.Transparent)
+                    .padding(horizontal = 18.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = pt == selected, onClick = { onSelect(pt) },
+                    colors   = RadioButtonDefaults.colors(selectedColor = OrionBlue, unselectedColor = OrionTextSub)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(pt.label, color = OrionText, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                if (pt == selected)
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = OrionBlue, modifier = Modifier.size(17.dp))
+            }
+            if (idx < ProductType.entries.lastIndex)
+                HorizontalDivider(color = OrionNavyLight)
+        }
+    }
+}
+
+@Composable
+fun ExpandableSection(
+    title: String, expanded: Boolean, onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(OrionNavyMid)
+            .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Settings, contentDescription = null, tint = OrionTextMuted, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(title, color = OrionText, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = OrionTextMuted)
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 4.dp), content = content)
+        }
+    }
+}
+
+@Composable
+fun PayloadSummary(amount: String, product: ProductType, brand: String, masked: String, entry: String) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(OrionNavyMid)
+            .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+            .padding(18.dp)
+    ) {
+        Text("Resumo", color = OrionTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        listOf(
+            "Valor"    to amount,
+            "Produto"  to product.label,
+            "Bandeira" to brand.ifEmpty { "—" },
+            "Cartão"   to masked.ifEmpty { "—" },
+            "Entrada"  to entry,
+            "Moeda"    to "BRL (986)",
+            "País"     to "Brasil (076)"
+        ).forEach { (label, value) ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(label, color = OrionTextMuted, fontSize = 13.sp)
+                Text(value, color = OrionText,      fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+fun ResultPanel(result: TxResult) {
+    val ok = result.state == TxState.SUCCESS
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (ok) OrionSuccess.copy(alpha = 0.1f) else OrionError.copy(alpha = 0.1f))
+            .border(1.dp, if (ok) OrionSuccess.copy(alpha = 0.4f) else OrionError.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (ok) Icons.Default.CheckCircle else Icons.Default.Error,
+                contentDescription = null,
+                tint = if (ok) OrionSuccess else OrionError, modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (ok) "Transação aprovada" else "Transação recusada",
+                color = if (ok) OrionSuccess else OrionError, fontSize = 15.sp, fontWeight = FontWeight.Bold
+            )
+        }
+        if (result.authCode.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Autorização: ${result.authCode}", color = OrionText, fontSize = 13.sp)
+        }
+        if (result.nsu.isNotEmpty()) {
+            Text("NSU: ${result.nsu}", color = OrionText, fontSize = 13.sp)
+        }
+        if (result.message.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(result.message, color = OrionTextMuted, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun TxSectionLabel(text: String) {
+    Text(text, color = OrionTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(bottom = 8.dp))
+}
+
+@Composable
+fun orionTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor    = OrionBlue,
+    unfocusedBorderColor  = OrionNavyLight,
+    focusedTextColor      = OrionText,
+    unfocusedTextColor    = OrionText,
+    cursorColor           = OrionBlue,
+    focusedContainerColor   = OrionNavyMid,
+    unfocusedContainerColor = OrionNavyMid,
+)
+
+// =============================================================================
+// LÓGICA DE TRANSAÇÃO
+// =============================================================================
+
+// =============================================================================
+// CONFIGURAÇÃO DE REDE
+// Troque o IP conforme seu ambiente:
+//   10.0.2.2       → Emulador Android Studio (AVD padrão) apontando para o PC
+//   192.168.56.1   → Emulador Genymotion / AVD bridge mode apontando para o PC
+//   192.168.X.X    → Dispositivo físico na mesma rede Wi-Fi que o PC
+// O IP do host PC no Genymotion/bridge é sempre 192.168.56.1
+// =============================================================================
+private const val API_HOST      = "192.168.56.1"          // ← altere aqui se necessário
+private const val API_PORT      = "8080"
+private const val API_BASE      = "http://$API_HOST:$API_PORT/api/v1"
+private const val API_URL       = "$API_BASE/transactions/authorize"
+private const val API_EMAIL_URL = "$API_BASE/transactions/{transactionId}/send-email"
+private const val MERCHANT_ID   = "3f90ed27-6eca-4bf6-a4e1-607ac55ea73b"
+
+fun buildTxPayload(
+    merchantId: String, amount: Double, productType: String,
+    terminalSn: String, externalRef: String, entryMode: String,
+    cardBrand: String, cardHolder: String, cardNumber: String,
+    expirationDate: String, cvv: String,
+    // Campos EMV opcionais — enviados quando disponíveis
+    cryptogram: String = "",
+    atc: String = "",
+    iad: String = "",
+    aip: String = "",
+    tvr: String = ""
+): JSONObject = JSONObject().apply {
+    // ── Campos obrigatórios ───────────────────────────────────────
+    put("merchantId",        merchantId)
+    put("amount",            java.math.BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP))
+    put("productType",       productType)
+    put("terminalSn",        terminalSn)
+    put("externalReference", externalRef)
+    put("entryMode",         entryMode)
+    put("cardBrand",         cardBrand)
+    put("cardHolderName",    cardHolder.ifEmpty { "NAO INFORMADO" })
+    put("cardNumber",        cardNumber.filter { it.isDigit() })
+    put("expirationDate",    expirationDate)
+    put("cvv",               cvv)
+    put("currencyCode",      "986")
+    put("countryCode",       "076")
+    put("transactionDate",   isoNow())
+    // ── Campos EMV complementares (enviados se presentes) ─────────
+    if (cryptogram.isNotEmpty()) put("applicationCryptogram", cryptogram)
+    if (atc.isNotEmpty())        put("atc",                   atc)
+    if (iad.isNotEmpty())        put("issuerApplicationData", iad)
+    if (aip.isNotEmpty())        put("aip",                   aip)
+    if (tvr.isNotEmpty())        put("tvr",                   tvr)
+}
+
+// Versão que retorna também o body bruto — usada no diagnóstico
+suspend fun sendTransactionRaw(payload: JSONObject): Pair<TxResult, String> = withContext(Dispatchers.IO) {
+    try {
+        val diagKey = java.util.UUID.randomUUID().toString()
+        val conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type",      "application/json; charset=utf-8")
+            setRequestProperty("Accept",             "application/json")
+            setRequestProperty("X-Merchant-Id",      payload.optString("merchantId", MERCHANT_ID))
+            setRequestProperty("X-Idempotency-Key",  diagKey)
+            doOutput       = true
+            connectTimeout = 15_000
+            readTimeout    = 30_000
+        }
+        val body = payload.toString()
+        Log.d("ORION_DIAG", "POST $API_URL  key=$diagKey\n${maskSensitiveLog(body)}")
+        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
+
+        val code = conn.responseCode
+        val raw  = runCatching {
+            (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.readText() ?: ""
+        }.getOrDefault("")
+        Log.d("ORION_DIAG", "HTTP $code <- $raw")
+
+        val json = runCatching { JSONObject(raw) }.getOrNull()
+        val result = if (code in 200..299) {
+            TxResult(
+                state         = TxState.SUCCESS,
+                message       = json?.optString("message", "Aprovado") ?: "Aprovado",
+                authCode      = json?.optString("authorizationCode") ?: json?.optString("authCode") ?: "",
+                nsu           = json?.optString("nsu") ?: json?.optString("nsuHost") ?: "",
+                transactionId = json?.optString("id") ?: json?.optString("transactionId") ?: json?.optString("transaction_id") ?: "",
+                rawJson       = raw
+            )
+        } else {
+            TxResult(
+                state   = TxState.ERROR,
+                message = json?.optString("message") ?: json?.optString("error") ?: "HTTP $code",
+                rawJson = raw
+            )
+        }
+        Pair(result, "HTTP $code\n\n$raw")
+    } catch (e: java.net.ConnectException) {
+        Pair(TxResult(TxState.ERROR, message = "Conexão recusada — API offline ou porta errada"), "ConnectException: ${e.message}")
+    } catch (e: java.net.SocketTimeoutException) {
+        Pair(TxResult(TxState.ERROR, message = "Timeout — API não respondeu em 30s"), "SocketTimeoutException: ${e.message}")
+    } catch (e: Exception) {
+        Pair(TxResult(TxState.ERROR, message = e.message ?: "Erro desconhecido"), "${e.javaClass.simpleName}: ${e.message}")
+    }
+}
+
+// Mascara PAN, CVV e dados sensíveis antes de imprimir no Logcat
+// Nunca imprima cardNumber ou cvv em texto claro — qualquer app com READ_LOGS captura
+fun maskSensitiveLog(json: String): String {
+    return json
+        .replace(Regex(""""cardNumber"\s*:\s*"[^"]+""""))  { """"cardNumber":"****"""" }
+        .replace(Regex(""""cvv"\s*:\s*"[^"]+""""))          { """"cvv":"***"""" }
+        .replace(Regex(""""expirationDate"\s*:\s*"[^"]+"""")) { """"expirationDate":"**/**"""" }
+        .replace(Regex(""""cardHolderName"\s*:\s*"[^"]+"""")) { m ->
+            val name = m.value.substringAfter(":").trim().trim('"')
+            val masked = name.take(1) + "*".repeat(maxOf(name.length - 2, 1)) + name.takeLast(1)
+            """"cardHolderName":"$masked""""
+        }
+}
+
+fun isoNow(): String {
+    val c = Calendar.getInstance()
+    return "%04d-%02d-%02dT%02d:%02d:%02d".format(
+        c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH),
+        c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), c.get(Calendar.SECOND)
+    )
+}
+
+suspend fun sendTransaction(
+    payload: JSONObject,
+    idempotencyKey: String = java.util.UUID.randomUUID().toString()
+): TxResult = withContext(Dispatchers.IO) {
+    Log.d("ORION_IDEM", "Enviando — X-Idempotency-Key: $idempotencyKey")
+    try {
+        val conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type",       "application/json; charset=utf-8")
+            setRequestProperty("Accept",              "application/json")
+            setRequestProperty("X-Merchant-Id",       payload.optString("merchantId", MERCHANT_ID))
+            setRequestProperty("X-Idempotency-Key",   idempotencyKey)
+            doOutput       = true
+            connectTimeout = 15_000
+            readTimeout    = 30_000
+        }
+        val body = payload.toString()
+        Log.d("ORION_TX", "POST $API_URL\n${maskSensitiveLog(body)}")
+        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
+
+        val code = conn.responseCode
+        val resp = runCatching {
+            (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.readText() ?: ""
+        }.getOrDefault("")
+        Log.d("ORION_TX", "HTTP $code ← $resp")
+
+        if (code in 200..299) {
+            val json = runCatching { JSONObject(resp) }.getOrNull()
+            TxResult(
+                state         = TxState.SUCCESS,
+                message       = json?.optString("message", "Aprovado") ?: "Aprovado",
+                authCode      = json?.optString("authorizationCode")
+                    ?: json?.optString("authCode")
+                    ?: json?.optString("authorization_code") ?: "",
+                nsu           = json?.optString("nsu") ?: json?.optString("nsuHost") ?: "",
+                transactionId = json?.optString("id")
+                    ?: json?.optString("transactionId")
+                    ?: json?.optString("transaction_id") ?: "",
+                rawJson       = resp
+            )
+        } else {
+            val json = runCatching { JSONObject(resp) }.getOrNull()
+            TxResult(
+                state   = TxState.ERROR,
+                message = json?.optString("message")
+                    ?: json?.optString("error")
+                    ?: json?.optString("detail")
+                    ?: "Erro HTTP $code",
+                rawJson = resp
+            )
+        }
+    } catch (e: java.net.ConnectException) {
+        TxResult(TxState.ERROR, message = "Servidor indisponível — verifique se a API está na porta 8080")
+    } catch (e: java.net.SocketTimeoutException) {
+        TxResult(TxState.ERROR, message = "Timeout — API não respondeu em 30s")
+    } catch (e: Exception) {
+        Log.e("ORION_TX", "Erro", e)
+        TxResult(TxState.ERROR, message = e.message ?: "Erro desconhecido")
     }
 }
 
@@ -2487,7 +2765,8 @@ fun extractPanFromTrack2(track2Hex: String): String? {
 // Após o separador D: 4 chars validade (YYMM) + 3 chars SC + 3 chars CVV2
 fun extractCvv2FromTrack2(track2Hex: String): String {
     val sep = track2Hex.indexOf('D').takeIf { it > 0 } ?: return ""
-    val afterSep = track2Hex.substring(sep + 1)
+    val afterSep = track2Hex.substring(sep + 1) // YYMM SC CVV2 PAD
+    // YYMM = 4, SC = 3, CVV2 = 3 → começa no índice 7
     return if (afterSep.length >= 10) afterSep.substring(7, 10).trimEnd('F','f','D','d')
     else ""
 }
@@ -2497,8 +2776,8 @@ fun extractCvv2FromTrack2(track2Hex: String): String {
 fun formatExpiry(hex: String): String {
     val h = hex.uppercase().trimEnd('F')
     return when {
-        h.length >= 6 -> "${h.substring(2, 4)}/${h.substring(0, 2)}"
-        h.length >= 4 -> "${h.substring(2, 4)}/${h.substring(0, 2)}"
+        h.length >= 6 -> "${h.substring(2, 4)}/${h.substring(0, 2)}" // YYMMDD → MM/YY
+        h.length >= 4 -> "${h.substring(2, 4)}/${h.substring(0, 2)}" // YYMM   → MM/YY
         else          -> h
     }
 }
