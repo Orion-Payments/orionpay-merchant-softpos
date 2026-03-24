@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+
+    <!-- Permitir tráfego local para o emulador e localhost -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+            <domain includeSubdomains="false">192.168.15.187</domain>
+    </domain-config>
+
+    <!-- Dispositivo físico na mesma rede Wi-Fi que o PC rodando a API. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.1.100</domain>
+    </domain-config>
+
+    <!-- Bloqueia tudo mais por padrão (segurança em produção) -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+</network-security-config>
