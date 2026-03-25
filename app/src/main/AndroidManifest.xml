@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="orionpay.maquinha_simulate">
 
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -12,9 +13,9 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
-        <!-- Atividade Principal que redireciona para a Splash -->
+        <!-- SplashActivity agora é a principal para evitar o erro de ActivityNotFound na MainActivity -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.splash.SplashActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -23,20 +24,18 @@
             </intent-filter>
         </activity>
 
+        <!-- TransactionActivity agora lida com o NFC -->
         <activity
-            android:name=".SplashActivity"
+            android:name=".ui.transaction.TransactionActivity"
             android:exported="false"
             android:launchMode="singleTop" />
 
         <activity
-            android:name=".TransactionActivity"
+            android:name=".ui.activities.DiagnosticActivity"
             android:exported="false"
             android:launchMode="singleTop" />
 
-        <activity
-            android:name=".DiagnosticActivity"
-            android:exported="false"
-            android:launchMode="singleTop" />
+        <!-- MainActivity removida pois a lógica de NFC foi movida para a TransactionActivity -->
 
     </application>
 
