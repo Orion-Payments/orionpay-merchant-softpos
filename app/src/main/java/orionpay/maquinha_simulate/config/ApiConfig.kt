@@ -4,10 +4,8 @@ package orionpay.maquinha_simulate.config
  * Centralização das configurações de rede para facilitar a troca de IPs e portas.
  */
 object ApiConfig {
-    // Para emulador use: "10.0.2.2"
-    // Para dispositivo físico use o IP do seu computador na rede Wi-Fi
-    // IP atualizado para o endereço solicitado: 192.168.15.187
-    private const val API_HOST = "192.168.15.187" 
+    
+    private const val API_HOST = "IP_DO_SERVIDOR_" 
     private const val API_PORT = "8080"
     
     const val BASE_URL = "http://$API_HOST:$API_PORT"
