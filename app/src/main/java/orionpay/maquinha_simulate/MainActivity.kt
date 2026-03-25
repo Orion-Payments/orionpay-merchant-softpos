@@ -681,17 +681,31 @@ fun DiagnosticScreen(onBack: () -> Unit) {
                             txLoading = true
                             txResult  = null
                             rawResponse = ""
-                            val amtDouble = amount.toDoubleOrNull() ?: 0.0
-                            val payload = buildTxPayload(
-                                merchantId, amtDouble, "CREDIT_A_VISTA",
-                                terminalSn, extRef, entryMode,
-                                cardBrand, cardHolder, cardNumber, expiry, cvv
-                            )
-                            sentPayload = payload.toString(2)
-                            val result  = sendTransactionRaw(payload)
-                            rawResponse = result.second
-                            txResult    = result.first
-                            txLoading   = false
+
+                            // 1. Obtém o token (Invisível)
+                            val token = getInternalAuthToken()
+
+                            if (token != null) {
+                                val amtDouble = amount.toDoubleOrNull() ?: 0.0
+                                val payload = buildTxPayload(
+                                    merchantId, amtDouble, "CREDIT_A_VISTA",
+                                    terminalSn, extRef, entryMode,
+                                    cardBrand, cardHolder, cardNumber, expiry, cvv
+                                )
+
+                                sentPayload = payload.toString(2)
+
+                                // 2. AQUI ESTAVA O ERRO: Agora enviamos o token recuperado acima
+                                val result  = sendTransactionRaw(payload, token)
+
+                                rawResponse = result.second
+                                txResult    = result.first
+                            } else {
+                                rawResponse = "ERRO: Falha ao obter token de autenticação automática."
+                                txResult = TxResult(TxState.ERROR, "Erro de Login")
+                            }
+
+                            txLoading = false
                         }
                     },
                     enabled  = !txLoading,
@@ -903,6 +917,17 @@ fun TransactionScreen(
         Log.d("ORION_IDEM", "X-Idempotency-Key: $idempotencyKey")
 
         scope.launch {
+            val token = getInternalAuthToken()
+
+            Log.d("ORION_AUTH", "Token obtido: ${token}...")
+
+            if (token == null) {
+                txResult = TxResult(TxState.ERROR, "Falha na autenticação do terminal")
+                isSubmitting = false
+                step = 5
+                return@launch
+            }
+
             val card = cardData
             val payload = buildTxPayload(
                 merchantId     = merchantId,
@@ -915,16 +940,14 @@ fun TransactionScreen(
                 cardHolder     = card?.holder ?: "",
                 cardNumber     = card?.panRaw ?: "",
                 expirationDate = card?.expiry ?: "",
-                // CVV só é necessário para MANUAL/CONTACTLESS — CHIP usa criptograma
-                cvv            = if ((card?.entryMode ?: "CHIP") == "CHIP") ""
-                else card?.cvv2?.ifEmpty { "" } ?: "",
+                cvv            = if ((card?.entryMode ?: "CHIP") == "CHIP") "" else card?.cvv2 ?: "",
                 cryptogram     = card?.cryptogram ?: "",
                 atc            = card?.atc ?: "",
                 iad            = card?.iad ?: "",
                 aip            = card?.aip ?: "",
                 tvr            = card?.tvr ?: ""
             )
-            txResult    = sendTransaction(payload, idempotencyKey)
+            txResult    = sendTransaction(payload, idempotencyKey, token)
             isSubmitting = false
             step         = 5
         }
@@ -2378,16 +2401,18 @@ fun orionTextFieldColors() = OutlinedTextFieldDefaults.colors(
 // CONFIGURAÇÃO DE REDE
 // Troque o IP conforme seu ambiente:
 //   10.0.2.2       → Emulador Android Studio (AVD padrão) apontando para o PC
-//   192.168.56.1   → Emulador Genymotion / AVD bridge mode apontando para o PC
+//   1192.168.201.156   → Emulador Genymotion / AVD bridge mode apontando para o PC
 //   192.168.X.X    → Dispositivo físico na mesma rede Wi-Fi que o PC
 // O IP do host PC no Genymotion/bridge é sempre 192.168.56.1
 // =============================================================================
-private const val API_HOST      = "192.168.56.1"          // ← altere aqui se necessário
+private const val API_HOST      = "192.168.201.156"          // ← altere aqui se necessário
 private const val API_PORT      = "8080"
 private const val API_BASE      = "http://$API_HOST:$API_PORT/api/v1"
 private const val API_URL       = "$API_BASE/transactions/authorize"
 private const val API_EMAIL_URL = "$API_BASE/transactions/{transactionId}/send-email"
 private const val MERCHANT_ID   = "3f90ed27-6eca-4bf6-a4e1-607ac55ea73b"
+
+private const val API_LOGIN_URL = "$API_BASE/auth/login" // Ajustado para o padrão /api/v1/auth/login
 
 fun buildTxPayload(
     merchantId: String, amount: Double, productType: String,
@@ -2425,13 +2450,17 @@ fun buildTxPayload(
 }
 
 // Versão que retorna também o body bruto — usada no diagnóstico
-suspend fun sendTransactionRaw(payload: JSONObject): Pair<TxResult, String> = withContext(Dispatchers.IO) {
+suspend fun sendTransactionRaw(payload: JSONObject, token: String): Pair<TxResult, String> = withContext(Dispatchers.IO) {
     try {
         val diagKey = java.util.UUID.randomUUID().toString()
         val conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type",      "application/json; charset=utf-8")
             setRequestProperty("Accept",             "application/json")
+
+            // ADICIONE ESTA LINHA (Igual ao Postman)
+            setRequestProperty("Authorization", "Bearer $token")
+
             setRequestProperty("X-Merchant-Id",      payload.optString("merchantId", MERCHANT_ID))
             setRequestProperty("X-Idempotency-Key",  diagKey)
             doOutput       = true
@@ -2500,7 +2529,8 @@ fun isoNow(): String {
 
 suspend fun sendTransaction(
     payload: JSONObject,
-    idempotencyKey: String = java.util.UUID.randomUUID().toString()
+    idempotencyKey: String = java.util.UUID.randomUUID().toString(),
+    token: String
 ): TxResult = withContext(Dispatchers.IO) {
     Log.d("ORION_IDEM", "Enviando — X-Idempotency-Key: $idempotencyKey")
     try {
@@ -2508,6 +2538,10 @@ suspend fun sendTransaction(
             requestMethod = "POST"
             setRequestProperty("Content-Type",       "application/json; charset=utf-8")
             setRequestProperty("Accept",              "application/json")
+
+
+            setRequestProperty("Authorization",      "Bearer $token")
+
             setRequestProperty("X-Merchant-Id",       payload.optString("merchantId", MERCHANT_ID))
             setRequestProperty("X-Idempotency-Key",   idempotencyKey)
             doOutput       = true
@@ -2517,7 +2551,6 @@ suspend fun sendTransaction(
         val body = payload.toString()
         Log.d("ORION_TX", "POST $API_URL\n${maskSensitiveLog(body)}")
         OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
-
         val code = conn.responseCode
         val resp = runCatching {
             (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -2794,5 +2827,40 @@ fun interpretSw(resp: ByteArray): String {
         sw1 == 0x6C -> "6C${"%02X".format(sw2)}: Le errado"
         sw1 == 0x61 -> "61${"%02X".format(sw2)}: Mais dados disponíveis"
         else -> "SW: ${"%02X%02X".format(sw1, sw2)}"
+    }
+}
+
+
+suspend fun getInternalAuthToken(): String? = withContext(Dispatchers.IO) {
+    try {
+        val loginUrl = "http://192.168.15.187:8080/api/auth/login" // Ajuste o IP se necessário
+        val conn = (URL(loginUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "application/json")
+            doOutput = true
+            connectTimeout = 5000
+            readTimeout = 5000
+        }
+
+        val loginBody = JSONObject().apply {
+            put("email", "admin@orionpay.com.br")
+            put("password", "password123")
+        }
+
+        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(loginBody.toString()) }
+
+        val code = conn.responseCode
+        if (code == 200) {
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(response)
+            return@withContext json.optString("accessToken")
+        } else {
+            Log.e("ORION_AUTH", "Erro no login automático: HTTP $code")
+            null
+        }
+    } catch (e: Exception) {
+        Log.e("ORION_AUTH", "Falha de conexão no login", e)
+        null
     }
 }
