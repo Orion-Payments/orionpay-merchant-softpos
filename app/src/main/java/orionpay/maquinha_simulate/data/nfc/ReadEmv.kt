@@ -15,112 +15,102 @@ class ReadEmvReader {
             var aid: String? = null
             
             // 1. SELECT PPSE
-            Log.d(TAG, "Tentando SELECT PPSE...")
             val ppseResp = transceiveSafe(isoDep, apduSelect("2PAY.SYS.DDF01"))
             if (ppseResp != null && isSw9000(ppseResp)) {
                 val tlvs = flattenTlv(parseTlv(dropSw(ppseResp)))
                 aid = findTag(tlvs, "4F")?.value?.toHex()
-                Log.d(TAG, "AID encontrado via PPSE: $aid")
             }
 
             // 2. Fallback AIDs
             if (aid == null) {
-                Log.d(TAG, "PPSE falhou ou sem AID, tentando AIDs conhecidos...")
                 for (candidate in knownAids) {
                     val resp = transceiveSafe(isoDep, apduSelectHex(candidate)) ?: continue
                     if (isSw9000(resp)) {
                         aid = candidate
-                        Log.d(TAG, "AID encontrado via Brute Force: $aid")
                         break
                     }
                 }
             }
 
-            if (aid == null) {
-                Log.e(TAG, "Nenhum AID de pagamento encontrado.")
-                return null
-            }
+            if (aid == null) return null
 
             // 3. SELECT AID
-            Log.d(TAG, "Selecionando AID: $aid")
             var selectResp = transceive(isoDep, apduSelectHex(aid))
             selectResp = getResponse(isoDep, selectResp)
-            if (!isSw9000(selectResp)) {
-                Log.e(TAG, "Falha ao selecionar AID: ${interpretSw(selectResp)}")
-                return null
-            }
+            if (!isSw9000(selectResp)) return null
 
             // 4. GPO
-            Log.d(TAG, "Enviando GPO...")
             val selectTlvs = flattenTlv(parseTlv(dropSw(selectResp)))
             val pdol = findTag(selectTlvs, "9F38")
             val gpoResp = getResponse(isoDep, transceive(isoDep, buildGpo(pdol)))
             
-            if (!isSw9000(gpoResp)) {
-                Log.w(TAG, "GPO falhou: ${interpretSw(gpoResp)}")
+            val allTlvs = mutableListOf<Tlv>()
+            if (gpoResp != null && isSw9000(gpoResp)) {
+                allTlvs.addAll(flattenTlv(parseTlv(dropSw(gpoResp))))
             }
 
-            val allTlvs = mutableListOf<Tlv>()
-            
             // 5. READ RECORDS
-            val afl = extractAflFromGpo(dropSw(gpoResp))
+            val afl = extractAflFromGpo(dropSw(gpoResp ?: byteArrayOf()))
             if (afl != null) {
-                Log.d(TAG, "Lendo records via AFL: ${afl.toHex()}")
                 for (entry in parseAfl(afl)) {
                     for (rec in entry.start..entry.end) {
                         var resp = transceiveSafe(isoDep, buildReadRecord(rec, entry.sfi)) ?: continue
                         resp = getResponse(isoDep, resp)
                         if (isSw9000(resp)) {
-                            val recordTlvs = flattenTlv(parseTlv(dropSw(resp)))
-                            allTlvs.addAll(recordTlvs)
-                            Log.d(TAG, "Record lido (SFI ${entry.sfi}, Rec $rec): ${recordTlvs.map { it.tag }.joinToString()}")
-                        }
-                    }
-                }
-            } else {
-                Log.d(TAG, "AFL não encontrado, tentando Brute Force de records...")
-                for (sfi in 1..5) {
-                    for (rec in 1..10) {
-                        var resp = transceiveSafe(isoDep, buildReadRecord(rec, sfi)) ?: continue
-                        resp = getResponse(isoDep, resp)
-                        if (isSw9000(resp)) {
-                            val recordTlvs = flattenTlv(parseTlv(dropSw(resp)))
-                            allTlvs.addAll(recordTlvs)
-                            Log.d(TAG, "Record lido (SFI $sfi, Rec $rec): ${recordTlvs.map { it.tag }.joinToString()}")
+                            allTlvs.addAll(flattenTlv(parseTlv(dropSw(resp))))
                         }
                     }
                 }
             }
 
-            // 6. Extraction
+            // 6. FORÇAR GERAÇÃO DE CRIPTOGRAMA (GENERATE AC)
+            // Comando essencial para obter o 9F26 (Cryptogram) e atualizar o 9F36 (ATC)
+            Log.d(TAG, "Solicitando Generate AC para obter Cryptogram...")
+            val generateAc = byteArrayOf(
+                0x80.toByte(), 0xAE.toByte(), 0x80.toByte(), 0x00.toByte(), 0x00.toByte()
+            )
+            val acRespRaw = transceiveSafe(isoDep, generateAc)
+            if (acRespRaw != null) {
+                val acResp = getResponse(isoDep, acRespRaw)
+                if (isSw9000(acResp)) {
+                    allTlvs.addAll(flattenTlv(parseTlv(dropSw(acResp))))
+                }
+            }
+
+            // 7. FORÇAR LEITURA DE ATC (GET DATA)
+            var atc = findTag(allTlvs, "9F36")?.value?.toHex() ?: ""
+            if (atc.isEmpty()) {
+                val getDataAtc = byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x36.toByte(), 0x00.toByte())
+                val respAtc = transceiveSafe(isoDep, getDataAtc)
+                if (respAtc != null && isSw9000(respAtc)) {
+                    val atcTlvs = parseTlv(dropSw(respAtc))
+                    atc = findTag(atcTlvs, "9F36")?.value?.toHex() ?: ""
+                }
+            }
+
+            // 8. Extração do PAN
             val panTlv = findTag(allTlvs, "5A")
             val track2Tlv = findTag(allTlvs, "57")
-            
             val panRaw = if (panTlv != null) {
                 panTlv.value.toHex().trimEnd('F', 'f').filter { it.isDigit() }
             } else if (track2Tlv != null) {
                 extractPanFromTrack2(track2Tlv.value.toHex())
             } else ""
 
-            if (panRaw.isEmpty()) {
-                Log.e(TAG, "PAN não encontrado. Tags lidas: ${allTlvs.map { it.tag }.distinct().joinToString()}")
-                return null
-            }
+            if (panRaw.isEmpty()) return null
 
-            val name = findTag(allTlvs, "5F20")?.value?.toAscii()?.trim() ?: ""
-            val expiry = findTag(allTlvs, "5F24")?.value?.toHex()?.let { formatExpiry(it) } ?: ""
-
-            Log.d(TAG, "Sucesso: PAN=$panRaw | Nome=$name | Validade=$expiry")
+            val cryptogram = findTag(allTlvs, "9F26")?.value?.toHex() ?: ""
+            Log.d(TAG, "DADOS REAIS LIDOS -> ATC: $atc | ARQC: $cryptogram")
 
             return CardData(
                 brand = identifyBrand(aid),
-                holder = name,
+                holder = findTag(allTlvs, "5F20")?.value?.toAscii()?.trim() ?: "",
                 panRaw = panRaw,
-                expiry = expiry,
+                expiry = findTag(allTlvs, "5F24")?.value?.toHex()?.let { formatExpiry(it) } ?: "",
                 cvv2 = "",
                 entryMode = "CHIP",
-                cryptogram = findTag(allTlvs, "9F26")?.value?.toHex() ?: "",
-                atc = findTag(allTlvs, "9F36")?.value?.toHex() ?: "",
+                cryptogram = cryptogram,
+                atc = atc,
                 iad = findTag(allTlvs, "9F10")?.value?.toHex() ?: "",
                 aip = findTag(allTlvs, "82")?.value?.toHex() ?: "",
                 tvr = findTag(allTlvs, "95")?.value?.toHex() ?: ""

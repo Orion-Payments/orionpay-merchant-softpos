@@ -103,6 +103,10 @@ fun TransactionScreen(
                 txResult = sendTransactionRaw(payload, token, idempotencyKey)
                 
                 Log.d("ORION_TX", "Resultado: ${txResult?.state} - ${txResult?.message}")
+
+                Log.d("ORION_TX", "Resposta bruta >> : ${payload?.toString(2)}")
+
+                Log.d("ORION_TX", "Resposta JSON: ${txResult?.rawJson}")
                 
             } catch (e: Exception) {
                 Log.e("ORION_TX", "Erro no fluxo de envio", e)

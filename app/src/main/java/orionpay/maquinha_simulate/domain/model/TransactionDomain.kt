@@ -20,6 +20,8 @@ data class TransactionDomain(
     val cvv: String,
     val currencyCode: String = "986",
     val countryCode: String = "076",
-    val transactionDateIso: String
+    val transactionDateIso: String,
+    val applicationCryptogram: String? = null,
+    val atc: String? = null
 )
 

@@ -30,10 +30,17 @@ suspend fun getInternalAuthToken(): String? = withContext(Dispatchers.IO) {
 }
 
 fun buildTxPayload(
-    merchantId: String, amount: Double, productType: String,
-    terminalSn: String, externalRef: String, entryMode: String,
-    cardBrand: String, cardHolder: String, cardNumber: String,
-    expirationDate: String, cvv: String,
+    merchantId: String,
+    amount: Double,
+    productType: String,
+    terminalSn: String,
+    externalRef: String,
+    entryMode: String,
+    cardBrand: String,
+    cardHolder: String,
+    cardNumber: String,
+    expirationDate: String,
+    cvv: String,
     // Campos EMV opcionais — enviados quando disponíveis
     cryptogram: String = "",
     atc: String = "",
@@ -42,140 +49,100 @@ fun buildTxPayload(
     tvr: String = ""
 ): JSONObject = JSONObject().apply {
     // ── Campos obrigatórios ───────────────────────────────────────
-    put("merchantId",        merchantId)
-    put("amount",            java.math.BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP))
-    put("productType",       productType)
-    put("terminalSn",        terminalSn)
+    put("merchantId", merchantId)
+    put("amount", java.math.BigDecimal(amount).setScale(2, java.math.RoundingMode.HALF_UP))
+    put("productType", productType)
+    put("terminalSn", terminalSn)
     put("externalReference", externalRef)
-    put("entryMode",         entryMode)
-    put("cardBrand",         cardBrand)
-    put("cardHolderName",    cardHolder.ifEmpty { "NAO INFORMADO" })
-    put("cardNumber",        cardNumber.filter { it.isDigit() })
-    put("expirationDate",    expirationDate)
-    put("cvv",               cvv)
-    put("currencyCode",      "986")
-    put("countryCode",       "076")
+    put("entryMode", entryMode)
+    put("cardBrand", cardBrand)
+    put("cardHolderName", cardHolder.ifEmpty { "NAO INFORMADO" })
+    put("cardNumber", cardNumber.filter { it.isDigit() })
+    put("expirationDate", expirationDate)
+
+    // Condicional de CVV: enviado apenas se for MANUAL. CHIP/CONTACTLESS envia ""
+    val finalCvv = if (entryMode == "MANUAL") cvv else ""
+    put("cvv", finalCvv)
+
+    put("currencyCode", "986")
+    put("countryCode", "076")
     put("transactionDate", isoNow())
+
     // ── Campos EMV complementares (enviados se presentes) ─────────
+    // cryptogram e atc são sempre incluídos se não estiverem vazios (capturados via NFC)
     if (cryptogram.isNotEmpty()) put("applicationCryptogram", cryptogram)
-    if (atc.isNotEmpty())        put("atc",                   atc)
-    if (iad.isNotEmpty())        put("issuerApplicationData", iad)
-    if (aip.isNotEmpty())        put("aip",                   aip)
-    if (tvr.isNotEmpty())        put("tvr",                   tvr)
+    if (atc.isNotEmpty()) put("atc", atc)
+
+    if (iad.isNotEmpty()) put("issuerApplicationData", iad)
+    if (aip.isNotEmpty()) put("aip", aip)
+    if (tvr.isNotEmpty()) put("tvr", tvr)
 }
 
-
-
+/**
+ * Envia transação usando o novo fluxo de domínio (TransactionDomain).
+ */
 suspend fun sendTransactionRaw(
     payload: JSONObject,
     token: String,
     idempotencyKey: String = java.util.UUID.randomUUID().toString()
 ): TxResult = withContext(Dispatchers.IO) {
-    Log.d("ORION_IDEM", "Enviando — X-Idempotency-Key: $idempotencyKey")
-    try {
-        val conn = (URL(ApiConfig.TRANSACTIONS_AUTHORIZE).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type",       "application/json; charset=utf-8")
-            setRequestProperty("Accept",              "application/json")
-
-
-            setRequestProperty("Authorization",      "Bearer $token")
-
-            setRequestProperty("X-Merchant-Id",       payload.optString("merchantId", ApiConfig.MERCHANT_ID))
-            setRequestProperty("X-Idempotency-Key",   idempotencyKey)
-            doOutput       = true
-            connectTimeout = ApiConfig.CONNECT_TIMEOUT
-            readTimeout    = ApiConfig.READ_TIMEOUT
-        }
-        val body = payload.toString()
-        Log.d("ORION_TX", "POST ${ApiConfig.TRANSACTIONS_AUTHORIZE}\n${maskSensitiveLog(body)}")
-        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(body) }
-        val code = conn.responseCode
-        val resp = runCatching {
-            (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.readText() ?: ""
-        }.getOrDefault("")
-        Log.d("ORION_TX", "HTTP $code ← $resp")
-
-        if (code in 200..299) {
-            val json = runCatching { JSONObject(resp) }.getOrNull()
-            TxResult(
-                state         = TxState.SUCCESS,
-                message       = json?.optString("message", "Aprovado") ?: "Aprovado",
-                authCode      = json?.optString("authorizationCode")
-                    ?: json?.optString("authCode")
-                    ?: json?.optString("authorization_code") ?: "",
-                nsu           = json?.optString("nsu") ?: json?.optString("nsuHost") ?: "",
-                transactionId = json?.optString("id")
-                    ?: json?.optString("transactionId")
-                    ?: json?.optString("transaction_id") ?: "",
-                rawJson       = resp
-            )
-        } else {
-            val json = runCatching { JSONObject(resp) }.getOrNull()
-            TxResult(
-                state   = TxState.ERROR,
-                message = json?.optString("message")
-                    ?: json?.optString("error")
-                    ?: json?.optString("detail")
-                    ?: "Erro HTTP $code",
-                rawJson = resp
-            )
-        }
-    } catch (e: java.net.ConnectException) {
-        TxResult(TxState.ERROR, message = "Servidor indisponível — verifique se a API está no IP ${ApiConfig.BASE_URL}")
-    } catch (e: java.net.SocketTimeoutException) {
-        TxResult(TxState.ERROR, message = "Timeout — API não respondeu")
-    } catch (e: Exception) {
-        Log.e("ORION_TX", "Erro", e)
-        TxResult(TxState.ERROR, message = e.message ?: "Erro desconhecido")
-    }
+    val resultAndRaw = sendTransactionRaw_(payload, token, idempotencyKey)
+    return@withContext resultAndRaw.first
 }
 
 
+suspend fun sendTransactionRaw_(
+    payload: JSONObject,
+    token: String,
+    idempotencyKey: String = java.util.UUID.randomUUID().toString()
+): Pair<TxResult, String> = withContext(Dispatchers.IO)
+{
+    val tx = TransactionDomain(
+        merchantId = payload.getString("merchantId"),
+        amount = payload.getDouble("amount"),
+        productType = orionpay.maquinha_simulate.domain.enums.ProductType.valueOf(
+            payload.getString("productType")
+        ),
+        terminalSn = payload.getString("terminalSn"),
+        externalReference = payload.getString("externalReference"),
+        entryMode = payload.getString("entryMode"),
+        cardBrand = payload.getString("cardBrand"),
+        cardHolderName = payload.getString("cardHolderName"),
+        cardNumber = payload.getString("cardNumber"),
+        expirationDate = payload.getString("expirationDate"),
+        cvv = payload.getString("cvv"),
+        currencyCode = payload.optString("currencyCode", "986"),
+        countryCode = payload.optString("countryCode", "076"),
+        transactionDateIso = payload.getString("transactionDate"),
+        applicationCryptogram = payload.optString("applicationCryptogram", null),
+        atc = payload.optString("atc", "01"),
+    )
 
-suspend fun sendTransactionRaw_(payload: JSONObject, token: String,  idempotencyKey: String = java.util.UUID.randomUUID().toString()): Pair<TxResult, String> =
-    withContext(Dispatchers.IO) {
-        val tx = TransactionDomain(
-            merchantId = payload.getString("merchantId"),
-            amount = payload.getDouble("amount"),
-            productType = orionpay.maquinha_simulate.domain.enums.ProductType.valueOf(
-                payload.getString("productType")
-            ),
-            terminalSn = payload.getString("terminalSn"),
-            externalReference = payload.getString("externalReference"),
-            entryMode = payload.getString("entryMode"),
-            cardBrand = payload.getString("cardBrand"),
-            cardHolderName = payload.getString("cardHolderName"),
-            cardNumber = payload.getString("cardNumber"),
-            expirationDate = payload.getString("expirationDate"),
-            cvv = payload.getString("cvv"),
-            currencyCode = payload.getString("currencyCode"),
-            countryCode = payload.getString("countryCode"),
-            transactionDateIso = payload.getString("transactionDate")
+    return@withContext try {
+        Log.d("ORION_IDEM", "Enviando via Domain — X-Idempotency-Key: $idempotencyKey")
+        val result = paymentGateway.process(tx, idempotencyKey, token)
+
+        val txResult = TxResult(
+            state = when (result.state) {
+                TxState.SUCCESS -> TxState.SUCCESS
+                TxState.ERROR -> TxState.ERROR
+                TxState.IDLE -> TxState.IDLE
+                TxState.LOADING -> TxState.LOADING
+                TxState.RETRYING -> TxState.RETRYING
+            },
+            message = result.message,
+            authCode = result.authCode ?: "",
+            nsu = result.nsu ?: "",
+            transactionId = result.transactionId ?: "",
+            rawJson = result.rawJson ?: ""
         )
-
-        return@withContext try {
-            val result = paymentGateway.process(tx, idempotencyKey, token)
-            val txResult = TxResult(
-                state = when (result.state) {
-                    TxState.SUCCESS -> TxState.SUCCESS
-                    TxState.ERROR -> TxState.ERROR
-                    TxState.IDLE -> TxState.IDLE
-                    TxState.LOADING -> TxState.LOADING
-                    TxState.RETRYING -> TxState.RETRYING
-                },
-                message = result.message,
-                authCode = result.authCode ?: "",
-                nsu = result.nsu ?: "",
-                transactionId = result.transactionId ?: ""
-            )
-            Pair(txResult, result.rawJson ?: "")
-        } catch (e: Exception) {
-            val errorResult = TxResult(
-                state = TxState.ERROR,
-                message = e.message ?: "Erro ao enviar transação"
-            )
-            Pair(errorResult, "")
-        }
+        Pair(txResult, result.rawJson ?: "")
+    } catch (e: Exception) {
+        Log.e("ORION_TX", "Erro no processamento via Domain", e)
+        val errorResult = TxResult(
+            state = TxState.ERROR,
+            message = e.message ?: "Erro ao enviar transação"
+        )
+        Pair(errorResult, "")
     }
+}

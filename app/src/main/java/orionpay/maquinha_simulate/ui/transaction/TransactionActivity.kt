@@ -23,11 +23,11 @@ class TransactionActivity : FragmentActivity(), NfcAdapter.ReaderCallback {
         setContent {
             OrionPayTheme {
                 TransactionScreenRoot(
-                    onEnableNfc  = { enabled -> 
+                    onEnableNfc = { enabled ->
                         isNfcEnabled = enabled
                         updateNfcState()
                     },
-                    onBack       = { finish() }
+                    onBack = { finish() }
                 )
             }
         }

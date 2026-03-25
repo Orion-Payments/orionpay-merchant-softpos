@@ -108,6 +108,8 @@ fun DiagnosticScreen(onBack: () -> Unit) {
     var rawResponse by remember { mutableStateOf("") }
     var sentPayload by remember { mutableStateOf("") }
 
+
+
     var idempotencyKey  by remember { mutableStateOf("") }
 
     if (idempotencyKey.isEmpty()) {
