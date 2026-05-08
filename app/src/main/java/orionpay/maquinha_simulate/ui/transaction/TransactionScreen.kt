@@ -34,6 +34,7 @@ import java.util.*
 
 @Composable
 fun TransactionScreen(
+    initialProduct: String? = null,
     onEnableNfc: (Boolean) -> Unit = {},
     onBack: () -> Unit = {}
 ) {
@@ -41,7 +42,12 @@ fun TransactionScreen(
 
     var step            by remember { mutableStateOf(1) }
     var rawAmount       by remember { mutableStateOf("") }
-    var selectedProduct by remember { mutableStateOf(ProductType.CREDIT_AVISTA) }
+    
+    val initialType = remember(initialProduct) {
+        ProductType.entries.find { it.name == initialProduct } ?: ProductType.CREDIT_AVISTA
+    }
+    
+    var selectedProduct by remember { mutableStateOf(initialType) }
     var cardData        by remember { mutableStateOf<CardData?>(null) }
     var nfcStatus       by remember { mutableStateOf("Aguardando cartão...") }
     var nfcError        by remember { mutableStateOf(false) }
@@ -134,8 +140,9 @@ fun TransactionScreen(
     Box(Modifier.fillMaxSize().background(OrionNavy)) {
         Column(Modifier.fillMaxSize()) {
 
-            FlowHeader(currentStep = step, totalSteps = 5, onBack = {
+            FlowHeader(currentStep = if (step > 2) step - 1 else step, totalSteps = 4, onBack = {
                 when {
+                    step == 3            -> step = 1
                     step > 1 && step < 4 -> step--
                     step == 1            -> onBack()
                 }
@@ -149,7 +156,7 @@ fun TransactionScreen(
                     onDigit         = { if (rawAmount.length < 9) rawAmount += it },
                     onBackspace     = { if (rawAmount.isNotEmpty()) rawAmount = rawAmount.dropLast(1) },
                     onClear         = { rawAmount = "" },
-                    onNext          = { if (amountDouble > 0) step = 2 }
+                    onNext          = { if (amountDouble > 0) step = 3 }
                 )
 
                 2 -> StepPaymentMethod(
@@ -205,17 +212,7 @@ fun TransactionScreen(
                             isSubmitting = false
                             step         = 4
                         },
-                        onNewSale   = {
-                            step           = 1
-                            rawAmount      = ""
-                            cardData       = null
-                            txResult       = null
-                            idempotencyKey = ""
-                            isSubmitting   = false
-                            nfcStatus      = "Aguardando cartão..."
-                            nfcError       = false
-                            extRef         = "PEDIDO-${System.currentTimeMillis() % 100000}"
-                        },
+                        onNewSale   = onBack,
                         onBack      = onBack
                     )
                 }

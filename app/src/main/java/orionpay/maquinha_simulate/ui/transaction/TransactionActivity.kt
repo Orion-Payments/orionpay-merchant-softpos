@@ -19,10 +19,14 @@ class TransactionActivity : FragmentActivity(), NfcAdapter.ReaderCallback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        
+        val initialProduct = intent.getStringExtra("PRODUCT_TYPE")
+        
         enableEdgeToEdge()
         setContent {
             OrionPayTheme {
                 TransactionScreenRoot(
+                    initialProduct = initialProduct,
                     onEnableNfc = { enabled ->
                         isNfcEnabled = enabled
                         updateNfcState()

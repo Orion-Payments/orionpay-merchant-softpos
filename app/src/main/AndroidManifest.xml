@@ -35,6 +35,11 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
+        <activity
+            android:name=".ui.home.HomeActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <!-- MainActivity removida pois a lógica de NFC foi movida para a TransactionActivity -->
 
     </application>

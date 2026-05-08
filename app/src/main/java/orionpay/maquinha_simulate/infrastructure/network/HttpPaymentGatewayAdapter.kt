@@ -45,6 +45,18 @@ class HttpPaymentGatewayAdapter(
             Log.d("ORION_GATEWAY", "VALIDANDO DADOS EMV PARA O BACKEND:")
             Log.d("ORION_GATEWAY", "ATC lido: ${tx.atc ?: "NULO (será enviado mock 0001)"}")
             Log.d("ORION_GATEWAY", "Cryptogram lido: ${tx.applicationCryptogram ?: "NULO (será enviado mock zeros)"}")
+            Log.d("ORION_GATEWAY", "Expiração: ${tx.expirationDate}")
+            Log.d("ORION_GATEWAY", "--------------------------------------------------")
+
+            // Limpeza de dados para evitar rejeição por formato ou máscara
+            val cleanPan    = tx.cardNumber.filter { it.isDigit() }
+            val cleanExpiry = tx.expirationDate.replace("/", "").ifEmpty { "1229" }
+
+            // Log de auditoria SEM MÁSCARA para validar o PAN real e evitar Erro 12 (Roteamento)
+            Log.d("ORION_GATEWAY", "--------------------------------------------------")
+            Log.d("ORION_GATEWAY", "PREPARANDO PAYLOAD ISO-COMPLIANT (DADOS REAIS):")
+            Log.d("ORION_GATEWAY", "PAN ENVIADO (Campo 2): $cleanPan")
+            Log.d("ORION_GATEWAY", "Expiração (Campo 14): $cleanExpiry")
             Log.d("ORION_GATEWAY", "--------------------------------------------------")
 
             val body = JSONObject().apply {
@@ -54,20 +66,25 @@ class HttpPaymentGatewayAdapter(
                 put("terminalSn", tx.terminalSn)
                 put("externalReference", tx.externalReference)
                 put("entryMode", tx.entryMode)
-                put("cardBrand", tx.cardBrand)
-                put("cardHolderName", tx.cardHolderName)
-                put("cardNumber", tx.cardNumber)
-                put("expirationDate", tx.expirationDate)
-                put("cvv", if (tx.cvv.isNullOrEmpty()) "000" else tx.cvv)
+                put("transactionDate", tx.transactionDateIso)
                 put("currencyCode", tx.currencyCode)
                 put("countryCode", tx.countryCode)
-                put("transactionDate", tx.transactionDateIso)
-                
-                put("applicationCryptogram", tx.applicationCryptogram ?: "0000000000000000")
-                put("atc", tx.atc ?: "0001")
+
+                // Dados do Cartão (PAN e Validade sem máscaras/separadores)
+                // O Gateway C++ exige o PAN real para extrair o BIN e rotear a transação
+                put("cardNumber", cleanPan)
+                put("expirationDate", cleanExpiry) 
+                put("expiryDate", cleanExpiry)
+                put("cvv", if (tx.cvv.isNullOrEmpty() || tx.cvv == "000") "" else tx.cvv)
+
+                // Campos EMV puros para o Gateway C++
+                put("applicationCryptogram", tx.applicationCryptogram ?: "")
+                put("atc", tx.atc ?: "")
+                put("cardBrand", tx.cardBrand)
+                put("cardHolderName", tx.cardHolderName)
             }.toString()
 
-            Log.d("ORION_GATEWAY", "JSON COMPLETO: ${maskSensitiveLog(body)}")
+            Log.d("ORION_GATEWAY", "JSON ENVIADO: $body")
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
 
             val code = conn.responseCode

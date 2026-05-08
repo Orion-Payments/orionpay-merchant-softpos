@@ -33,6 +33,7 @@ import orionpay.maquinha_simulate.OrionNavy
 import orionpay.maquinha_simulate.OrionPayTheme
 import orionpay.maquinha_simulate.OrionText
 import orionpay.maquinha_simulate.OrionTextMuted
+import orionpay.maquinha_simulate.ui.home.HomeActivity
 import orionpay.maquinha_simulate.ui.transaction.TransactionActivity
 
 class SplashActivity : FragmentActivity() {
@@ -42,7 +43,7 @@ class SplashActivity : FragmentActivity() {
         setContent {
             OrionPayTheme {
                 SplashScreen {
-                    startActivity(Intent(this, TransactionActivity::class.java))
+                    startActivity(Intent(this, HomeActivity::class.java))
                     finish()
                 }
             }

@@ -8,13 +8,14 @@ import orionpay.maquinha_simulate.presentation.transaction.TransactionViewModel
 // Composable raiz que conecta o TransactionViewModel à TransactionScreen existente
 @Composable
 fun TransactionScreenRoot(
+    initialProduct: String? = null,
     onEnableNfc: (Boolean) -> Unit = {},
     onBack: () -> Unit = {}
 ) {
     val viewModel: TransactionViewModel = viewModel()
-    // Por enquanto apenas delega para a TransactionScreen legada para
-    // manter o comportamento; integração com o ViewModel será feita depois.
+    
     TransactionScreen(
+        initialProduct = initialProduct,
         onEnableNfc = onEnableNfc,
         onBack = onBack
     )
