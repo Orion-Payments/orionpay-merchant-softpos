@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
@@ -46,45 +47,69 @@ import java.net.URL
 import java.util.*
 
 
+import orionpay.maquinha_simulate.ui.theme.*
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+
 @Composable
 fun StepProcessing(amount: String) {
-    val infiniteTransition = rememberInfiniteTransition(label = "proc")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
-        label = "rotation"
-    )
-
     Column(
         Modifier.fillMaxSize().background(OrionBlue),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Toolbar style
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = OrionWhite, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.weight(1f))
+            Text("OrionPay", color = OrionWhite, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.HelpOutline, null, tint = OrionWhite, modifier = Modifier.size(24.dp))
+        }
+
+        Spacer(Modifier.height(32.dp))
+        Text(
+            "Processando pagamento...",
+            color = OrionWhite,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+
         Spacer(Modifier.weight(1f))
 
-        Text("Processando pagamento...", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(48.dp))
-
-        Box(Modifier.size(100.dp), contentAlignment = Alignment.Center) {
+        // Multi-color Spinner placeholder
+        Box(contentAlignment = Alignment.Center) {
+            // Animating spinner (simplified for now with a circular indicator)
             CircularProgressIndicator(
-                modifier    = Modifier.size(100.dp),
-                color       = Color.White,
-                strokeWidth = 6.dp
+                modifier = Modifier.size(80.dp),
+                color = OrionWhite,
+                strokeWidth = 6.dp,
+                strokeCap = StrokeCap.Round
             )
         }
 
         Spacer(Modifier.weight(1f))
 
-        val navPad5 = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.1f))
-                .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 20.dp + navPad5),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // Rodapé com valor estilo OrionPay
+        Surface(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = OrionWhite
         ) {
-            Text("Valor do pagamento", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(amount, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Column(
+                Modifier.padding(horizontal = 24.dp, vertical = 24.dp).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Valor no débito", color = OrionTextLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text(amount.replace("R$", "").trim(), color = OrionBlue, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                Text("BRL", color = OrionTextLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

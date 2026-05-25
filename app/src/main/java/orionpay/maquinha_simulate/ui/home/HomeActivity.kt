@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,15 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionNavy
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
 import orionpay.maquinha_simulate.OrionPayTheme
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
 import orionpay.maquinha_simulate.domain.enums.ProductType
 import orionpay.maquinha_simulate.ui.components.OrionHeader
+import orionpay.maquinha_simulate.ui.theme.*
 import orionpay.maquinha_simulate.ui.transaction.TransactionActivity
 
 class HomeActivity : FragmentActivity() {
@@ -41,7 +37,7 @@ class HomeActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             OrionPayTheme {
-                HomeScreen(
+                MainHomeScreen(
                     onOptionClick = { product ->
                         val intent = Intent(this, TransactionActivity::class.java).apply {
                             putExtra("PRODUCT_TYPE", product.name)
@@ -55,10 +51,50 @@ class HomeActivity : FragmentActivity() {
 }
 
 @Composable
+fun MainHomeScreen(onOptionClick: (ProductType) -> Unit) {
+    var selectedItem by remember { mutableIntStateOf(0) }
+    val items = listOf("Vender", "Histórico", "Gestão", "Ajustes")
+    val icons = listOf(Icons.Default.Storefront, Icons.Default.History, Icons.Default.BarChart, Icons.Default.Settings)
+    val selectedIcons = listOf(Icons.Filled.Storefront, Icons.Filled.History, Icons.Filled.BarChart, Icons.Filled.Settings)
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = OrionWhite,
+                tonalElevation = 8.dp
+            ) {
+                items.forEachIndexed { index, item ->
+                    NavigationBarItem(
+                        icon = { Icon(if (selectedItem == index) selectedIcons[index] else icons[index], contentDescription = item) },
+                        label = { Text(item) },
+                        selected = selectedItem == index,
+                        onClick = { selectedItem = index },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = OrionBlue,
+                            selectedTextColor = OrionBlue,
+                            unselectedIconColor = OrionTextLight,
+                            unselectedTextColor = OrionTextLight,
+                            indicatorColor = OrionBlue.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(Modifier.padding(innerPadding)) {
+            when (selectedItem) {
+                0 -> HomeScreen(onOptionClick)
+                else -> PlaceholderScreen(items[selectedItem])
+            }
+        }
+    }
+}
+
+@Composable
 fun HomeScreen(onOptionClick: (ProductType) -> Unit) {
     var showInstallments by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(OrionNavy)) {
+    Box(Modifier.fillMaxSize().background(OrionBackground)) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -79,7 +115,7 @@ fun HomeScreen(onOptionClick: (ProductType) -> Unit) {
                     )
                     Text(
                         "Selecione uma opção de recebimento",
-                        color = OrionTextMuted, fontSize = 14.sp
+                        color = OrionTextLight, fontSize = 14.sp
                     )
 
                     Spacer(Modifier.height(32.dp))
@@ -124,7 +160,7 @@ fun HomeScreen(onOptionClick: (ProductType) -> Unit) {
                     )
                     Text(
                         "Selecione a quantidade de parcelas",
-                        color = OrionTextMuted, fontSize = 14.sp
+                        color = OrionTextLight, fontSize = 14.sp
                     )
 
                     Spacer(Modifier.height(32.dp))
@@ -162,10 +198,10 @@ fun MenuButton(
 ) {
     Surface(
         onClick = onClick,
-        color = OrionNavyMid,
+        color = OrionWhite,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
-        border = BorderStroke(1.dp, OrionNavyLight)
+        border = BorderStroke(1.dp, OrionBackground)
     ) {
         Row(
             Modifier
@@ -186,10 +222,22 @@ fun MenuButton(
             
             Column(Modifier.weight(1f)) {
                 Text(title, color = OrionText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = OrionTextMuted, fontSize = 13.sp)
+                Text(subtitle, color = OrionTextLight, fontSize = 13.sp)
             }
             
-            Icon(Icons.Default.ChevronRight, null, tint = OrionNavyLight)
+            Icon(Icons.Default.ChevronRight, null, tint = OrionTextLight)
+        }
+    }
+}
+
+@Composable
+fun PlaceholderScreen(title: String) {
+    Box(Modifier.fillMaxSize().background(OrionBackground), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Construction, null, modifier = Modifier.size(64.dp), tint = OrionTextLight)
+            Spacer(Modifier.height(16.dp))
+            Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = OrionText)
+            Text("Em desenvolvimento", color = OrionTextLight)
         }
     }
 }

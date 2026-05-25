@@ -15,9 +15,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
+import orionpay.maquinha_simulate.ui.theme.OrionBackground
+import orionpay.maquinha_simulate.ui.theme.OrionText
+import orionpay.maquinha_simulate.ui.theme.OrionTextLight
 
 @Composable
 fun CompRow(label: String, value: String) {
@@ -28,7 +28,7 @@ fun CompRow(label: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = OrionTextMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(label, color = OrionTextLight, fontSize = 13.sp, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(12.dp))
         Text(
             value,
@@ -39,5 +39,5 @@ fun CompRow(label: String, value: String) {
             modifier   = Modifier.weight(1.5f)
         )
     }
-    HorizontalDivider(color = OrionNavyLight.copy(alpha = 0.5f))
+    HorizontalDivider(color = OrionBackground)
 }

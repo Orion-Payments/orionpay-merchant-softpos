@@ -20,11 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionSuccess
-import orionpay.maquinha_simulate.OrionText
+import orionpay.maquinha_simulate.ui.theme.*
 
 @Composable
 fun OrionHeader(showBack: Boolean, onBack: () -> Unit = {}) {
@@ -33,7 +29,7 @@ fun OrionHeader(showBack: Boolean, onBack: () -> Unit = {}) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(OrionNavyMid)
+            .background(OrionWhite)
             .padding(top = statusBarHeight + 12.dp, bottom = 12.dp, start = 20.dp, end = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -41,7 +37,7 @@ fun OrionHeader(showBack: Boolean, onBack: () -> Unit = {}) {
             Icon(
                 Icons.Default.ArrowBack,
                 contentDescription = "Voltar",
-                tint = OrionText,
+                tint = OrionBlue,
                 modifier = Modifier
                     .size(36.dp)
                     .clickable(onClick = onBack)
@@ -55,12 +51,12 @@ fun OrionHeader(showBack: Boolean, onBack: () -> Unit = {}) {
             Icon(Icons.Default.Shield, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(10.dp))
-        Text("OrionPay", color = OrionText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Text("OrionPay", color = OrionBlue, fontSize = 17.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
         Row(
             Modifier
                 .clip(RoundedCornerShape(20.dp))
-                .background(OrionNavyLight)
+                .background(Color(0xFFF1F5F9))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

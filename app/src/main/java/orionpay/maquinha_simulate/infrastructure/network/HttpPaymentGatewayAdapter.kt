@@ -45,6 +45,7 @@ class HttpPaymentGatewayAdapter(
             Log.d("ORION_GATEWAY", "VALIDANDO DADOS EMV PARA O BACKEND:")
             Log.d("ORION_GATEWAY", "ATC lido: ${tx.atc ?: "NULO (será enviado mock 0001)"}")
             Log.d("ORION_GATEWAY", "Cryptogram lido: ${tx.applicationCryptogram ?: "NULO (será enviado mock zeros)"}")
+            Log.d("ORION_GATEWAY", "PIN Data: ${tx.pinData ?: "AUSENTE"}")
             Log.d("ORION_GATEWAY", "Expiração: ${tx.expirationDate}")
             Log.d("ORION_GATEWAY", "--------------------------------------------------")
 
@@ -59,6 +60,23 @@ class HttpPaymentGatewayAdapter(
             Log.d("ORION_GATEWAY", "Expiração (Campo 14): $cleanExpiry")
             Log.d("ORION_GATEWAY", "--------------------------------------------------")
 
+            // 1. Construção do Bitmap ISO 8583 (Primary)
+            val bitmapBuilder = orionpay.maquinha_simulate.utils.IsoBitmapBuilder()
+                .setField(2)  // PAN
+                .setField(3)  // Processing Code
+                .setField(4)  // Amount
+                .setField(7)  // Transmission Date
+                .setField(11) // STAN
+                .setField(14) // Expiration Date
+                .setField(22) // Entry Mode
+                .setField(49) // Currency Code
+
+            if (!tx.pinData.isNullOrEmpty()) {
+                bitmapBuilder.setField(52) // PIN Data (Bit 52)
+            }
+            
+            val hexBitmap = bitmapBuilder.buildHex()
+
             val body = JSONObject().apply {
                 put("merchantId", tx.merchantId)
                 put("amount", tx.amount)
@@ -70,18 +88,33 @@ class HttpPaymentGatewayAdapter(
                 put("currencyCode", tx.currencyCode)
                 put("countryCode", tx.countryCode)
 
-                // Dados do Cartão (PAN e Validade sem máscaras/separadores)
-                // O Gateway C++ exige o PAN real para extrair o BIN e rotear a transação
-                put("cardNumber", cleanPan)
-                put("expirationDate", cleanExpiry) 
-                put("expiryDate", cleanExpiry)
-                put("cvv", if (tx.cvv.isNullOrEmpty() || tx.cvv == "000") "" else tx.cvv)
+                // Sinalização ISO 8583
+                put("bitmap", hexBitmap)
 
-                // Campos EMV puros para o Gateway C++
-                put("applicationCryptogram", tx.applicationCryptogram ?: "")
-                put("atc", tx.atc ?: "")
+                // Dados do Cartão
+                put("cardNumber", cleanPan)
+                put("expirationDate", cleanExpiry)
                 put("cardBrand", tx.cardBrand)
                 put("cardHolderName", tx.cardHolderName)
+                put("cvv", if (tx.cvv.isNullOrEmpty() || tx.cvv == "000") "" else tx.cvv)
+
+                // Campos EMV
+                put("applicationCryptogram", tx.applicationCryptogram ?: "")
+                put("atc", tx.atc ?: "")
+                put("issuerApplicationData", tx.issuerApplicationData ?: "")
+                put("aip", tx.aip ?: "")
+                put("tvr", tx.tvr ?: "")
+
+                // Campo 11 - STAN
+                if (!tx.stan.isNullOrEmpty()) {
+                    put("stan", tx.stan)
+                }
+
+                // Campo 52 - PIN Data
+                if (!tx.pinData.isNullOrEmpty()) {
+                    put("pinData", tx.pinData) // DE 52
+                    put("bit52", true)
+                }
             }.toString()
 
             Log.d("ORION_GATEWAY", "JSON ENVIADO: $body")

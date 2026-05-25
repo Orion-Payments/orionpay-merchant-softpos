@@ -27,71 +27,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import orionpay.maquinha_simulate.OrionGreenTap
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
-import orionpay.maquinha_simulate.OrionTextSub
+import orionpay.maquinha_simulate.ui.theme.OrionBlue
+import orionpay.maquinha_simulate.ui.theme.OrionText
+import orionpay.maquinha_simulate.ui.theme.OrionTextLight
+import orionpay.maquinha_simulate.ui.theme.OrionSuccess
+import androidx.compose.material.icons.filled.CheckCircle
 
-// ─── Componente: tecla do teclado numérico com efeito de toque verde ─────────
+// ─── Componente: tecla do teclado numérico estilo OrionPay ─────────
 
 @Composable
 fun RowScope.NumPadKey(key: String, onTap: () -> Unit) {
     val isBs  = key == "⌫"
     val isDot = key == "."
-    val tapAnim  = remember { Animatable(0f) }
-    val tapScale = remember { Animatable(1f) }
+    val isCheck = key == "check"
     val scope    = rememberCoroutineScope()
 
     Box(
         Modifier
             .weight(1f)
-            .height(58.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                when {
-                    isBs  -> OrionNavyLight
-                    isDot -> Color.Transparent
-                    else  -> OrionNavyLight.copy(alpha = 0.4f)
-                }
-            )
-            .clickable(
-                indication = null,
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            ) {
-                scope.launch {
-                    launch { tapAnim.snapTo(1f); tapAnim.animateTo(0f, tween(380, easing = FastOutSlowInEasing)) }
-                    launch { tapScale.snapTo(0.88f); tapScale.animateTo(1f, tween(220, easing = FastOutSlowInEasing)) }
-                }
-                onTap()
-            },
+            .height(64.dp)
+            .background(if (isCheck) OrionSuccess.copy(alpha = 0.1f) else Color.Transparent)
+            .clickable { onTap() },
         contentAlignment = Alignment.Center
     ) {
-        // Flash verde arredondado
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = tapAnim.value }
-                .clip(RoundedCornerShape(14.dp))
-                .background(OrionGreenTap.copy(alpha = 0.35f))
-        )
-        // Conteúdo com escala
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { scaleX = tapScale.value; scaleY = tapScale.value },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isBs) {
-                Icon(Icons.Default.Backspace, null, tint = OrionTextMuted, modifier = Modifier.size(22.dp))
-            } else {
-                Text(
-                    key,
-                    color      = if (isDot) OrionTextSub else OrionText,
-                    fontSize   = 22.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+        if (isBs) {
+            Icon(Icons.Default.Backspace, null, tint = OrionTextLight, modifier = Modifier.size(24.dp))
+        } else if (key == "check") {
+            Icon(Icons.Default.CheckCircle, null, tint = OrionSuccess.copy(alpha = 0.6f), modifier = Modifier.size(28.dp))
+        } else {
+            Text(
+                key,
+                color      = if (isDot) OrionTextLight else OrionText,
+                fontSize   = 24.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

@@ -27,13 +27,9 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionGreenTap
-import orionpay.maquinha_simulate.OrionNavy
 import orionpay.maquinha_simulate.OrionPayTheme
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
 import orionpay.maquinha_simulate.ui.home.HomeActivity
+import orionpay.maquinha_simulate.ui.theme.*
 import orionpay.maquinha_simulate.ui.transaction.TransactionActivity
 
 class SplashActivity : FragmentActivity() {
@@ -109,7 +105,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = bgAlpha.value }
-            .background(OrionNavy),
+            .background(Color.White),
         contentAlignment = Alignment.Center
     ) {
         // Anel externo
@@ -122,7 +118,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                     alpha  = ringAlpha2.value
                 }
                 .clip(RoundedCornerShape(130.dp))
-                .background(OrionGreenTap.copy(alpha = 0.08f))
+                .background(OrionBlue.copy(alpha = 0.08f))
         )
         // Anel médio
         Box(
@@ -134,7 +130,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                     alpha  = ringAlpha1.value
                 }
                 .clip(RoundedCornerShape(95.dp))
-                .background(OrionGreenTap.copy(alpha = 0.14f))
+                .background(OrionBlue.copy(alpha = 0.14f))
         )
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -150,7 +146,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                     .clip(RoundedCornerShape(24.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(OrionBlue, OrionGreenTap.copy(alpha = 0.85f))
+                            listOf(OrionBlue, OrionBlue.copy(alpha = 0.85f))
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -190,12 +186,12 @@ fun SplashScreen(onFinished: () -> Unit) {
                         Modifier
                             .size(6.dp)
                             .clip(RoundedCornerShape(3.dp))
-                            .background(OrionGreenTap)
+                            .background(OrionBlue)
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "Pagamentos seguros e rápidos",
-                        color    = OrionTextMuted,
+                        color    = OrionTextLight,
                         fontSize = 14.sp
                     )
                     Spacer(Modifier.width(8.dp))
@@ -203,7 +199,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                         Modifier
                             .size(6.dp)
                             .clip(RoundedCornerShape(3.dp))
-                            .background(OrionGreenTap)
+                            .background(OrionBlue)
                     )
                 }
             }

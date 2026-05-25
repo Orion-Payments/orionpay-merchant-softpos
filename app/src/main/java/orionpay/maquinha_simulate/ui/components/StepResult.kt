@@ -40,18 +40,10 @@ import androidx.compose.ui.unit.*
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.*
 import org.json.JSONObject
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionError
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionSuccess
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
 import orionpay.maquinha_simulate.data.model.ComprovanteData
 import orionpay.maquinha_simulate.data.model.TxResult
 import orionpay.maquinha_simulate.domain.enums.ProductType
 import orionpay.maquinha_simulate.domain.enums.TxState
-import orionpay.maquinha_simulate.ui.theme.OrionWarning
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -59,6 +51,13 @@ import java.util.*
 
 
 
+
+import orionpay.maquinha_simulate.ui.theme.*
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 
 @Composable
 fun StepResult(
@@ -76,134 +75,107 @@ fun StepResult(
         ComprovanteScreen(
             data          = comprovante,
             onClose       = { showComprovante = false },
-            // onNewSale reseta todo o estado do fluxo e volta para a etapa 1
             onBackToHome  = onNewSale
         )
         return
     }
 
     Column(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxSize().background(OrionWhite),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.weight(1f))
-
-        // Ícone de resultado
-        Box(
-            Modifier
-                .size(120.dp)
-                .clip(RoundedCornerShape(60.dp))
-                .background(if (ok) OrionSuccess.copy(0.15f) else OrionError.copy(0.15f))
-                .border(3.dp, if (ok) OrionSuccess else OrionError, RoundedCornerShape(60.dp)),
-            contentAlignment = Alignment.Center
+        // Toolbar style
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                if (ok) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = null,
-                tint     = if (ok) OrionSuccess else OrionError,
-                modifier = Modifier.size(56.dp)
-            )
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = OrionBlue, modifier = Modifier.size(24.dp).clickable { onBack() })
+            Spacer(Modifier.weight(1f))
+            Text("OrionPay", color = OrionBlue, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.HelpOutline, null, tint = OrionBlue, modifier = Modifier.size(24.dp))
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
 
         Text(
-            if (ok) "Pagamento efetuado!" else "Pagamento recusado",
-            color      = if (ok) OrionSuccess else OrionError,
-            fontSize   = 22.sp,
+            if (ok) "Pagamento efetuado!" else "Pagamento não autorizado",
+            color = if (ok) OrionBlueDark else OrionError,
+            fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(48.dp))
 
-        if (result?.message?.isNotEmpty() == true) {
-            Text(result.message, color = OrionTextMuted, fontSize = 14.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 40.dp))
+        // Ícone de resultado
+        Surface(
+            modifier = Modifier.size(140.dp),
+            shape = CircleShape,
+            color = if (ok) OrionSuccess else OrionError.copy(alpha = 0.1f),
+            border = if (ok) null else BorderStroke(2.dp, OrionError)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (ok) Icons.Default.Check else Icons.Default.Close,
+                    contentDescription = null,
+                    tint = if (ok) OrionWhite else OrionError,
+                    modifier = Modifier.size(80.dp)
+                )
+            }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(64.dp))
 
-        // Detalhes
-        Column(
-            Modifier
-                .padding(horizontal = 24.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(OrionNavyMid)
-                .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
-                .padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("${product.label}", color = OrionTextMuted, fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(amount, color = OrionText, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            if (result?.authCode?.isNotEmpty() == true) {
-                Spacer(Modifier.height(10.dp))
-                HorizontalDivider(color = OrionNavyLight)
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Autorização", color = OrionTextMuted, fontSize = 13.sp)
-                    Text(result.authCode, color = OrionText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-            if (result?.nsu?.isNotEmpty() == true) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("NSU", color = OrionTextMuted, fontSize = 13.sp)
-                    Text(result.nsu, color = OrionText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
+        Text("Valor pago no ${product.label.lowercase()}", color = OrionTextLight, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(amount, color = OrionBlue, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+
+        if (!ok && result?.message?.isNotEmpty() == true) {
+            Spacer(Modifier.height(16.dp))
+            Text(result.message, color = OrionError, fontSize = 14.sp, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 40.dp))
         }
 
         Spacer(Modifier.weight(1f))
 
-        // Botões de ação
-        val navPad4 = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 20.dp + navPad4)) {
-            if (ok) {
-                Button(
-                    onClick  = { showComprovante = true },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape    = RoundedCornerShape(14.dp),
-                    colors   = ButtonDefaults.buttonColors(containerColor = OrionBlue)
-                ) {
-                    Icon(Icons.Default.Receipt, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Ver comprovante", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-            // Retry — só aparece em erros de rede (timeout/sem conexão)
-            // Reutiliza a mesma X-Idempotency-Key para evitar cobrança dupla
-            if (!ok && canRetry) {
-                Button(
-                    onClick  = onRetry,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape    = RoundedCornerShape(14.dp),
-                    colors   = ButtonDefaults.buttonColors(containerColor = OrionWarning)
-                ) {
-                    Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp), tint = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Tentar novamente", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "A mesma chave de idempotência será reutilizada — sem risco de cobrança dupla.",
-                    color    = OrionTextMuted,
-                    fontSize = 11.sp,
-                    textAlign= TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-                Spacer(Modifier.height(10.dp))
-            }
-            OutlinedButton(
-                onClick  = onNewSale,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape    = RoundedCornerShape(14.dp),
-                border   = BorderStroke(1.dp, OrionNavyLight),
-                colors   = ButtonDefaults.outlinedButtonColors(contentColor = OrionText)
+        // Botão de ação (Estilo barra inferior OrionPay)
+        Surface(
+            color = OrionBlue,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(64.dp)
+                    .clickable {
+                        if (ok) showComprovante = true
+                        else if (canRetry) onRetry()
+                        else onNewSale()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Nova venda", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.padding(start = 20.dp).size(24.dp)
+                )
+                
+                Text(
+                    text = if (ok) "Ver comprovante" else if (canRetry) "Tentar novamente" else "Nova venda",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OrionWhite
+                )
+
+                Icon(
+                    Icons.AutoMirrored.Filled.ReceiptLong,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.padding(end = 20.dp).size(24.dp)
+                )
             }
         }
     }

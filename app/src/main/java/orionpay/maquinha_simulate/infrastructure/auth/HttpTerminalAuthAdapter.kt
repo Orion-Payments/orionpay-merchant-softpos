@@ -60,8 +60,11 @@ class HttpTerminalAuthAdapter(
             val token = json.optString("token", null) ?: json.optString("accessToken", null)
             Log.d("ORION_AUTH", "Token obtido com sucesso")
             token
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e("ORION_AUTH", "Timeout ao conectar em ${ApiConfig.BASE_URL}. Verifique se o IP ${ApiConfig.API_HOST} está correto e se o servidor está rodando.")
+            null
         } catch (e: Exception) {
-            Log.e("ORION_AUTH", "Erro ao autenticar", e)
+            Log.e("ORION_AUTH", "Erro ao autenticar: ${e.message}", e)
             null
         }
     }

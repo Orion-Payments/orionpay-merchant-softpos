@@ -1,111 +1,150 @@
 package orionpay.maquinha_simulate.ui.components
 
-
-import android.content.Intent
-import orionpay.maquinha_simulate.BuildConfig
-import android.nfc.NfcAdapter
-import android.nfc.Tag
-import android.nfc.tech.IsoDep
-import android.os.Bundle
-import android.util.Log
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.*
-import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.fragment.app.FragmentActivity
-import kotlinx.coroutines.*
-import org.json.JSONObject
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.*
-
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import orionpay.maquinha_simulate.ui.theme.*
 
 @Composable
 fun StepAmount(
     formattedAmount: String, rawAmount: String,
     onDigit: (String) -> Unit, onBackspace: () -> Unit,
-    onClear: () -> Unit, onNext: () -> Unit
+    onClear: () -> Unit, onNext: () -> Unit,
+    onBack: () -> Unit
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.weight(1f).padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+    Column(Modifier.fillMaxSize().background(OrionWhite)) {
+        // Toolbar
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Qual o valor da venda?", color = OrionTextMuted, fontSize = 16.sp)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                formattedAmount,
-                color      = OrionText,
-                fontSize   = 42.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign  = TextAlign.Center
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack, 
+                null, 
+                tint = OrionBlue, 
+                modifier = Modifier.size(24.dp).clickable { onBack() }
+            )
+            Spacer(Modifier.weight(1f))
+            Text("OrionPay", color = OrionBlue, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Icon(
+                Icons.AutoMirrored.Filled.HelpOutline, 
+                null, 
+                tint = OrionBlue, 
+                modifier = Modifier.size(24.dp)
             )
         }
 
-        // Teclado numérico + botão próximo
-        val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Column(
+            Modifier.weight(1f).padding(horizontal = 24.dp).padding(top = 8.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text(
+                "Qual o valor da venda?",
+                color = OrionText, // Agora usando cor escura definida no tema
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "R$ ",
+                    color = OrionBlue,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Light
+                )
+                Text(
+                    formattedAmount.replace("R$", "").trim(),
+                    color = OrionBlue,
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Barra inferior OrionPay com ação "Próximo"
+        Surface(
+            color = OrionBlue,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val enabled = rawAmount.isNotEmpty() && rawAmount != "0"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(64.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = Color.White
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(enabled = enabled) { onNext() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Próximo",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (enabled) Color.White else Color.White.copy(alpha = 0.5f)
+                    )
+                }
+
+                Icon(
+                    Icons.AutoMirrored.Filled.ReceiptLong,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.padding(end = 20.dp).size(24.dp)
+                )
+            }
+        }
+
+        // Teclado numérico
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .background(OrionNavyMid)
-                .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp + navBarPadding)
+                .background(Color(0xFFF1F5F9))
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
         ) {
-            listOf(listOf("1","2","3"), listOf("4","5","6"), listOf("7","8","9"), listOf(".","0","⌫")).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(
+                listOf("1", "2", "3"),
+                listOf("4", "5", "6"),
+                listOf("7", "8", "9"),
+                listOf(".", "0", "⌫")
+            ).forEach { row ->
+                Row(Modifier.fillMaxWidth()) {
                     row.forEach { key ->
                         NumPadKey(
-                            key         = key,
-                            onTap       = { when (key) { "⌫" -> onBackspace(); "." -> {} else -> onDigit(key) } }
+                            key = key,
+                            onTap = { when (key) { "⌫" -> onBackspace(); "." -> {} else -> onDigit(key) } }
                         )
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick  = onNext,
-                enabled  = rawAmount.isNotEmpty() && rawAmount != "0",
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape    = RoundedCornerShape(14.dp),
-                colors   = ButtonDefaults.buttonColors(
-                    containerColor         = OrionBlue,
-                    disabledContainerColor = OrionNavyLight
-                )
-            ) {
-                Text("Próximo", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }

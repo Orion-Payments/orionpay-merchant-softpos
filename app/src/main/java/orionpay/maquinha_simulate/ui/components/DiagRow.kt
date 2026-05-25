@@ -10,7 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import orionpay.maquinha_simulate.OrionTextMuted
+import orionpay.maquinha_simulate.OrionTextLight
 import orionpay.maquinha_simulate.orionTextFieldColors
 
 @Composable
@@ -20,7 +20,7 @@ fun DiagRow(
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text
 ) {
-    Text(label, color = OrionTextMuted)
+    Text(label, color = OrionTextLight)
     Spacer(Modifier.height(4.dp))
     OutlinedTextField(
         value = value,

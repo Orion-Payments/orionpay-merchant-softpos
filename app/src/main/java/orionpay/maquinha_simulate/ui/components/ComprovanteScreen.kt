@@ -40,15 +40,6 @@ import androidx.compose.ui.unit.*
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.*
 import org.json.JSONObject
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionError
-import orionpay.maquinha_simulate.OrionNavy
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionSuccess
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextMuted
-import orionpay.maquinha_simulate.OrionTextSub
 import orionpay.maquinha_simulate.data.model.ComprovanteData
 import orionpay.maquinha_simulate.utils.buildComprovanteText
 import orionpay.maquinha_simulate.utils.callSendEmailApi
@@ -57,8 +48,9 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.*
-
-
+import orionpay.maquinha_simulate.ui.theme.*
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.foundation.shape.CircleShape
 
 @Composable
 fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: () -> Unit = onClose) {
@@ -73,7 +65,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
     var emailError   by remember { mutableStateOf(false) }
     var sendApiError by remember { mutableStateOf("") }
 
-    Box(Modifier.fillMaxSize().background(OrionNavy)) {
+    Box(Modifier.fillMaxSize().background(OrionBackground)) {
 
         // ── Conteúdo principal ────────────────────────────────────────────
         Column(Modifier.fillMaxSize()) {
@@ -81,14 +73,14 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(OrionNavyMid)
+                    .background(OrionWhite)
                     .padding(top = statusPad + 12.dp, bottom = 12.dp, start = 16.dp, end = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Default.ArrowBack, null, tint = OrionText, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.ArrowBack, null, tint = OrionBlue, modifier = Modifier.size(24.dp))
                 }
-                Text("Comprovante", color = OrionText, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                Text("Comprovante", color = OrionBlue, fontSize = 17.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f))
                 IconButton(onClick = {
                     val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
@@ -98,7 +90,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                     }
                     context.startActivity(android.content.Intent.createChooser(shareIntent, "Compartilhar comprovante"))
                 }) {
-                    Icon(Icons.Default.Share, null, tint = OrionBlue, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Share, null, tint = OrionBlue, modifier = Modifier.size(24.dp))
                 }
             }
 
@@ -116,17 +108,17 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(OrionNavyMid)
-                        .border(1.dp, OrionNavyLight, RoundedCornerShape(16.dp))
+                        .background(OrionWhite)
+                        .border(1.dp, OrionBackground, RoundedCornerShape(16.dp))
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         Modifier
                             .size(56.dp)
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(OrionSuccess.copy(alpha = 0.15f))
-                            .border(2.dp, OrionSuccess.copy(alpha = 0.5f), RoundedCornerShape(28.dp)),
+                            .clip(CircleShape)
+                            .background(OrionSuccess.copy(alpha = 0.1f))
+                            .border(1.dp, OrionSuccess.copy(alpha = 0.5f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Default.Check, null, tint = OrionSuccess, modifier = Modifier.size(28.dp))
@@ -134,9 +126,10 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                     Spacer(Modifier.height(12.dp))
                     Text("Pagamento aprovado", color = OrionSuccess, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text(data.amount, color = OrionText, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text(data.amount.replace("R$", "").trim(), color = OrionBlue, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text("BRL", color = OrionTextLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text(data.dateTime, color = OrionTextMuted, fontSize = 12.sp)
+                    Text(data.dateTime, color = OrionTextLight, fontSize = 12.sp)
                 }
 
                 Spacer(Modifier.height(14.dp))
@@ -162,18 +155,18 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
 
                 // Seção de e-mail
                 Text("Enviar comprovante por e-mail",
-                    color = OrionText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    color = OrionBlue, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text("O comprovante será enviado diretamente ao cliente.",
-                    color = OrionTextMuted, fontSize = 13.sp)
+                    color = OrionTextLight, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
 
                 OutlinedTextField(
                     value         = email,
                     onValueChange = { email = it; emailError = false; sendApiError = "" },
-                    placeholder   = { Text("cliente@email.com", color = OrionTextSub) },
+                    placeholder   = { Text("cliente@email.com", color = OrionTextLight) },
                     leadingIcon   = {
-                        Icon(Icons.Default.Email, null, tint = OrionTextMuted, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Email, null, tint = OrionTextLight, modifier = Modifier.size(18.dp))
                     },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Email,
@@ -185,14 +178,14 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                     isError  = emailError,
                     colors   = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor      = OrionBlue,
-                        unfocusedBorderColor    = OrionNavyLight,
+                        unfocusedBorderColor    = OrionBackground,
                         errorBorderColor        = OrionError,
                         focusedTextColor        = OrionText,
                         unfocusedTextColor      = OrionText,
                         cursorColor             = OrionBlue,
-                        focusedContainerColor   = OrionNavyMid,
-                        unfocusedContainerColor = OrionNavyMid,
-                        errorContainerColor     = OrionNavyMid,
+                        focusedContainerColor   = OrionWhite,
+                        unfocusedContainerColor = OrionWhite,
+                        errorContainerColor     = OrionWhite,
                     ),
                     shape      = RoundedCornerShape(12.dp),
                     modifier   = Modifier.fillMaxWidth(),
@@ -204,7 +197,7 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                     Text("E-mail inválido", color = OrionError, fontSize = 12.sp)
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(16.dp))
 
                 Button(
                     onClick = {
@@ -214,7 +207,6 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                         }
                         sending = true
                         sendApiError = ""
-                        // Tudo no mesmo scope.launch — snackbarHost acessível aqui
                         scope.launch {
                             val emailCapture = email
                             val apiResult = callSendEmailApi(
@@ -237,21 +229,21 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                         }
                     },
                     enabled  = email.isNotEmpty() && !sending,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape    = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape    = RectangleShape,
                     colors   = ButtonDefaults.buttonColors(
                         containerColor         = OrionBlue,
-                        disabledContainerColor = OrionNavyLight
+                        disabledContainerColor = OrionTextLight.copy(alpha = 0.5f)
                     )
                 ) {
                     if (sending) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
-                        Text("Enviando...", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Enviando...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
                     } else {
                         Icon(Icons.Default.Send, null, modifier = Modifier.size(17.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Enviar por e-mail", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Enviar por e-mail", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Color.White)
                     }
                 }
 
@@ -278,7 +270,6 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
             }
         }
 
-        // Snackbar sobreposto no topo do Box — sempre visível
         SnackbarHost(
             hostState = snackbarHost,
             modifier  = Modifier
@@ -313,5 +304,5 @@ fun ComprovanteScreen(data: ComprovanteData, onClose: () -> Unit, onBackToHome: 
                 }
             }
         }
-    } // fecha Box
+    }
 }

@@ -32,13 +32,13 @@ app/src/main/java/orionpay/maquinha_simulate/
 ## 🔄 Fluxo de Venda
 
 O aplicativo foi otimizado para um fluxo de venda rápido e intuitivo:
-1.  **Menu Principal**: Seleção do tipo de produto (Crédito, Débito, Pix).
-2.  **Valor**: Inserção do valor da transação.
-3.  **Leitura NFC**: Aproximação do cartão para leitura dos dados EMV.
+1.  **Valor**: Inserção do valor da transação.
+2.  **Leitura NFC**: Aproximação do cartão para leitura dos dados EMV.
+3.  **Senha (PIN)**: Captura segura da senha do portador (com suporte a PIN Block ISO Format 0 e Mock de homologação).
 4.  **Processamento**: Envio assíncrono para o gateway com proteção de idempotência.
 5.  **Resultado**: Tela de confirmação ou erro, com opção de visualização de comprovante detalhado.
 
-*Nota: O fluxo foi simplificado para avançar diretamente do valor para a leitura, utilizando a pré-seleção do menu.*
+*Nota: O fluxo inclui a captura de senha após a leitura do chip, essencial para transações de cartão presente.*
 
 ---
 

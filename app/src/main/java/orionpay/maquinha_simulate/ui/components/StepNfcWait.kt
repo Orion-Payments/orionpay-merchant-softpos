@@ -49,89 +49,103 @@ import java.net.URL
 import java.util.*
 
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import orionpay.maquinha_simulate.ui.theme.*
+import androidx.compose.ui.graphics.RectangleShape
+
 @Composable
 fun StepNfcWait(amount: String, product: ProductType, status: String, hasError: Boolean, onNext: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "nfc")
     val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.88f, targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        initialValue = 0.92f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "nfc_pulse"
     )
 
     Column(
-        Modifier.fillMaxSize().background(
-            OrionBlue),
+        Modifier.fillMaxSize().background(OrionBlue),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.weight(1f))
-
-        // Ícone NFC animado
-        Box(contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .size(180.dp)
-                    .scale(pulse)
-                    .clip(RoundedCornerShape(90.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-            )
-            Box(
-                Modifier
-                    .size(140.dp)
-                    .clip(RoundedCornerShape(70.dp))
-                    .background(Color.White.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Wifi,
-                    contentDescription = null,
-                    tint     = Color.White,
-                    modifier = Modifier.size(72.dp)
-                )
-            }
+        // Toolbar style
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = OrionWhite, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.weight(1f))
+            Text("OrionPay", color = OrionWhite, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.HelpOutline, null, tint = OrionWhite, modifier = Modifier.size(24.dp))
         }
 
         Spacer(Modifier.height(32.dp))
         Text(
-            "Aproxime o cartão ou dispositivo"+
-                    "atrás deste celular",
-            color     = Color.White,
-            fontSize  = 18.sp,
-            fontWeight= FontWeight.Bold,
+            "Aproxime o cartão ou dispositivo\natrás deste celular",
+            color = OrionWhite,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier  = Modifier.padding(horizontal = 40.dp)
+            modifier = Modifier.padding(horizontal = 40.dp)
         )
 
         Spacer(Modifier.weight(1f))
 
-        // Status da leitura NFC
-        AnimatedVisibility(visible = hasError) {
-            Box(
+        // NFC Icon Area
+        Box(contentAlignment = Alignment.Center) {
+             // Outer pulse
+             Box(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFEF4444).copy(alpha = 0.25f))
-                    .padding(12.dp)
+                    .size(200.dp)
+                    .scale(pulse)
+                    .clip(CircleShape)
+                    .background(OrionWhite.copy(alpha = 0.1f))
+            )
+            // Phone/Card Icon Placeholder
+            Surface(
+                modifier = Modifier.size(160.dp),
+                shape = CircleShape,
+                color = OrionWhite.copy(alpha = 0.15f)
             ) {
-                Text(status, color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth())
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Contactless,
+                        contentDescription = null,
+                        tint = OrionWhite,
+                        modifier = Modifier.size(80.dp)
+                    )
+                }
             }
         }
+        
+        Spacer(Modifier.height(24.dp))
+        Text("01:00", color = OrionWhite, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.width(80.dp).height(2.dp).background(OrionWhite.copy(alpha = 0.3f)))
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.weight(1f))
 
-        // Rodapé com valor
-        val navPad3 = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.1f))
-                .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 20.dp + navPad3),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // Status Error
+        AnimatedVisibility(visible = hasError) {
+            Text(status, color = OrionWhite, fontSize = 14.sp, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(16.dp).fillMaxWidth())
+        }
+
+        // Rodapé com valor estilo OrionPay
+        Surface(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = OrionWhite
         ) {
-            Text(product.label, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(amount, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Column(
+                Modifier.padding(horizontal = 24.dp, vertical = 24.dp).padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Valor no ${product.label.lowercase()}", color = OrionTextLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text(amount, color = OrionBlue, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

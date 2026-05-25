@@ -14,8 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
+import orionpay.maquinha_simulate.OrionBlue
+import orionpay.maquinha_simulate.OrionTextLight
 
 @Composable
 fun DiagCard(
@@ -27,12 +27,12 @@ fun DiagCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(
-                if (color == Color.Transparent) OrionNavyMid
+                if (color == Color.Transparent) Color(0xFFF8FAFC)
                 else color.copy(alpha = 0.1f)
             )
             .border(
                 1.dp,
-                if (color == Color.Transparent) OrionNavyLight else color.copy(alpha = 0.35f),
+                if (color == Color.Transparent) Color(0xFFE2E8F0) else color.copy(alpha = 0.35f),
                 RoundedCornerShape(14.dp)
             )
             .padding(16.dp),

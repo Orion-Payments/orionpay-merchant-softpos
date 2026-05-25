@@ -15,9 +15,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionTextMuted
+import orionpay.maquinha_simulate.ui.theme.OrionBackground
+import orionpay.maquinha_simulate.ui.theme.OrionTextLight
+import orionpay.maquinha_simulate.ui.theme.OrionWhite
 
 @Composable
 fun CompSection(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -26,17 +26,17 @@ fun CompSection(title: String, content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(OrionNavyMid)
-            .border(1.dp, OrionNavyLight, RoundedCornerShape(14.dp))
+            .background(OrionWhite)
+            .border(1.dp, OrionBackground, RoundedCornerShape(14.dp))
     ) {
 
         Box(
             Modifier
                 .fillMaxWidth()
-                .background(OrionNavyLight.copy(alpha = 0.5f))
+                .background(OrionBackground)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            Text(title, color = OrionTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = OrionTextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), content = content)
     }

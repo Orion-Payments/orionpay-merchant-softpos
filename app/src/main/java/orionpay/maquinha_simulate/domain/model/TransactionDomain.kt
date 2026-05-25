@@ -22,6 +22,11 @@ data class TransactionDomain(
     val countryCode: String = "076",
     val transactionDateIso: String,
     val applicationCryptogram: String? = null,
-    val atc: String? = null
+    val atc: String? = null,
+    val issuerApplicationData: String? = null,
+    val aip: String? = null,
+    val tvr: String? = null,
+    val pinData: String? = null,
+    val stan: String? = null
 )
 

@@ -46,7 +46,9 @@ fun buildTxPayload(
     atc: String = "",
     iad: String = "",
     aip: String = "",
-    tvr: String = ""
+    tvr: String = "",
+    pinData: String = "",
+    stan: String? = null
 ): JSONObject = JSONObject().apply {
     // ── Campos obrigatórios ───────────────────────────────────────
     put("merchantId", merchantId)
@@ -76,6 +78,11 @@ fun buildTxPayload(
     if (iad.isNotEmpty()) put("issuerApplicationData", iad)
     if (aip.isNotEmpty()) put("aip", aip)
     if (tvr.isNotEmpty()) put("tvr", tvr)
+    if (pinData.isNotEmpty()) put("pinData", pinData)
+    
+    // Gerar STAN aleatório se não fornecido (6 dígitos, ISO-8583 compliant)
+    val finalStan = stan ?: (1..999999).random().toString().padStart(6, '0')
+    put("stan", finalStan)
 }
 
 /**
@@ -114,8 +121,13 @@ suspend fun sendTransactionRaw_(
         currencyCode = payload.optString("currencyCode", "986"),
         countryCode = payload.optString("countryCode", "076"),
         transactionDateIso = payload.getString("transactionDate"),
-        applicationCryptogram = payload.optString("applicationCryptogram", null),
-        atc = payload.optString("atc", "01"),
+        applicationCryptogram = payload.optString("applicationCryptogram").takeIf { it.isNotEmpty() },
+        atc = payload.optString("atc").takeIf { it.isNotEmpty() } ?: "01",
+        issuerApplicationData = payload.optString("issuerApplicationData").takeIf { it.isNotEmpty() },
+        aip = payload.optString("aip").takeIf { it.isNotEmpty() },
+        tvr = payload.optString("tvr").takeIf { it.isNotEmpty() },
+        pinData = payload.optString("pinData").takeIf { it.isNotEmpty() },
+        stan = payload.optString("stan").takeIf { it.isNotEmpty() }
     )
 
     return@withContext try {

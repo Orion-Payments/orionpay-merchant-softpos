@@ -52,6 +52,7 @@ fun TransactionScreen(
     var nfcStatus       by remember { mutableStateOf("Aguardando cartão...") }
     var nfcError        by remember { mutableStateOf(false) }
     var txResult        by remember { mutableStateOf<TxResult?>(null) }
+    var pinData         by remember { mutableStateOf("") }
     var merchantId      by remember { mutableStateOf(ApiConfig.MERCHANT_ID) }
     var terminalSn      by remember { mutableStateOf("POS-ORION-992") }
     var extRef          by remember { mutableStateOf("PEDIDO-${System.currentTimeMillis() % 100000}") }
@@ -102,7 +103,8 @@ fun TransactionScreen(
                     atc            = card?.atc ?: "",
                     iad            = card?.iad ?: "",
                     aip            = card?.aip ?: "",
-                    tvr            = card?.tvr ?: ""
+                    tvr            = card?.tvr ?: "",
+                    pinData        = pinData
                 )
                 
                 // Usando a função centralizada que já usa os timeouts e IPs corretos
@@ -116,10 +118,12 @@ fun TransactionScreen(
                 
             } catch (e: Exception) {
                 Log.e("ORION_TX", "Erro no fluxo de envio", e)
-                txResult = TxResult(TxState.ERROR, e.message ?: "Erro interno ao enviar")
+                txResult = TxResult(TxState.ERROR, e.message ?: "Erro de conexão")
             } finally {
-                isSubmitting = false
-                step = 5
+                withContext(Dispatchers.Main) {
+                    isSubmitting = false
+                    step = 5
+                }
             }
         }
     }
@@ -131,17 +135,19 @@ fun TransactionScreen(
             cardData  = card
             nfcError  = false
             nfcStatus = "Cartão lido! ${card.brand} — ${maskPan(card.panRaw)}"
-            step = 4
+            // Solicita senha apenas se valor > R$ 200,00
+            step = if (amountDouble > 200.0) 6 else 4
         }
         NfcDataBus.onCardError = { msg -> nfcError = true; nfcStatus = msg }
         onDispose { NfcDataBus.onCardRead = null; NfcDataBus.onCardError = null }
     }
 
-    Box(Modifier.fillMaxSize().background(OrionNavy)) {
+    Box(Modifier.fillMaxSize().background(OrionWhite)) {
         Column(Modifier.fillMaxSize()) {
 
-            FlowHeader(currentStep = if (step > 2) step - 1 else step, totalSteps = 4, onBack = {
+            FlowHeader(currentStep = if (step >= 3) (if (step == 6) 3 else step - 1) else step, totalSteps = 4, onBack = {
                 when {
+                    step == 6            -> step = 3
                     step == 3            -> step = 1
                     step > 1 && step < 4 -> step--
                     step == 1            -> onBack()
@@ -156,14 +162,16 @@ fun TransactionScreen(
                     onDigit         = { if (rawAmount.length < 9) rawAmount += it },
                     onBackspace     = { if (rawAmount.isNotEmpty()) rawAmount = rawAmount.dropLast(1) },
                     onClear         = { rawAmount = "" },
-                    onNext          = { if (amountDouble > 0) step = 3 }
+                    onNext          = { if (amountDouble > 0) step = 2 },
+                    onBack          = onBack
                 )
 
                 2 -> StepPaymentMethod(
                     amount   = formattedAmount,
                     selected = selectedProduct,
                     onSelect = { selectedProduct = it },
-                    onNext   = { step = 3 }
+                    onNext   = { step = 3 },
+                    onBack   = { step = 1 }
                 )
 
                 3 -> StepNfcWait(
@@ -171,7 +179,17 @@ fun TransactionScreen(
                     product  = selectedProduct,
                     status   = nfcStatus,
                     hasError = nfcError,
-                    onNext   = { step = 4 }
+                    onNext   = { step = if (amountDouble > 200.0) 6 else 4 }
+                )
+
+                6 -> orionpay.maquinha_simulate.ui.components.StepPin(
+                    amount = formattedAmount,
+                    onConfirm = { typedPin ->
+                        // Mock homologação: se "1234", envia bloco fixo; caso contrário, gera ISO Format 0
+                        pinData = if (typedPin == "1234") "1234567890ABCDEF" 
+                                  else orionpay.maquinha_simulate.utils.PinBlockUtil.format0(typedPin, cardData?.panRaw ?: "")
+                        step = 4
+                    }
                 )
 
                 4 -> {

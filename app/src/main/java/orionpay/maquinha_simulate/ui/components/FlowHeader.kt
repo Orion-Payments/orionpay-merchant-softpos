@@ -39,12 +39,7 @@ import androidx.compose.ui.unit.*
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.*
 import org.json.JSONObject
-import orionpay.maquinha_simulate.OrionBlue
-import orionpay.maquinha_simulate.OrionNavyLight
-import orionpay.maquinha_simulate.OrionNavyMid
-import orionpay.maquinha_simulate.OrionSuccess
-import orionpay.maquinha_simulate.OrionText
-import orionpay.maquinha_simulate.OrionTextSub
+import orionpay.maquinha_simulate.ui.theme.*
 
 
 @Composable
@@ -53,60 +48,19 @@ fun FlowHeader(currentStep: Int, totalSteps: Int, onBack: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(OrionNavyMid)
-            .padding(top = statusBarHeight + 12.dp, bottom = 14.dp, start = 20.dp, end = 20.dp)
+            .background(OrionWhite)
+            .padding(top = statusBarHeight, bottom = 4.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.ArrowBack, null, tint = OrionText, modifier = Modifier.size(20.dp))
+        Row(
+            Modifier.fillMaxWidth().height(4.dp)
+        ) {
+            val progress = (currentStep.toFloat() / totalSteps.toFloat()).coerceIn(0f, 1f)
+            if (progress > 0f) {
+                Box(Modifier.fillMaxHeight().weight(progress).background(OrionBlue))
             }
-            Spacer(Modifier.width(8.dp))
-            // Bolinhas de etapa
-            Row(
-                Modifier.weight(1f),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                (1..totalSteps).forEach { step ->
-                    val isDone    = step < currentStep
-                    val isCurrent = step == currentStep
-                    // Bolinha
-                    Box(
-                        Modifier
-                            .size(if (isCurrent) 30.dp else 22.dp)
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(
-                                when {
-                                    isCurrent -> OrionBlue
-                                    isDone    -> OrionSuccess
-                                    else      -> OrionNavyLight
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isDone) {
-                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
-                        } else {
-                            Text(
-                                "$step",
-                                color    = if (isCurrent) Color.White else OrionTextSub,
-                                fontSize = if (isCurrent) 13.sp else 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    // Linha entre bolinhas
-                    if (step < totalSteps) {
-                        Box(
-                            Modifier
-                                .width(14.dp)
-                                .height(2.dp)
-                                .background(if (isDone) OrionSuccess else OrionNavyLight)
-                        )
-                    }
-                }
+            if (progress < 1f) {
+                Box(Modifier.fillMaxHeight().weight(1f - progress).background(Color(0xFFE2E8F0)))
             }
-            Spacer(Modifier.width(32.dp))
         }
     }
 }
