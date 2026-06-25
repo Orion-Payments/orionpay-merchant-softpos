@@ -14,6 +14,7 @@ import orionpay.maquinha_simulate.ui.splash.SplashActivity
 object NfcDataBus {
     var onCardRead: ((CardData) -> Unit)? = null
     var onCardError: ((String) -> Unit)? = null
+    var amountToRead: Double = 0.0
 }
 
 class MainActivity : FragmentActivity(), NfcAdapter.ReaderCallback {
@@ -52,7 +53,7 @@ class MainActivity : FragmentActivity(), NfcAdapter.ReaderCallback {
         try {
             isoDep.connect()
             isoDep.timeout = 5000
-            val card = readEmvReader.readEmvCard(isoDep)
+            val card = readEmvReader.readEmvCard(isoDep, NfcDataBus.amountToRead)
             if (card != null) {
                 NfcDataBus.onCardRead?.invoke(card)
             } else {

@@ -26,6 +26,6 @@ object ApiConfig {
     const val AUTH_PASSWORD = "Admin@123456"
 
     // Configurações de Timeout (Reduzido para falhar mais rápido se a rede estiver ruim)
-    const val CONNECT_TIMEOUT = 10_000
+    const val CONNECT_TIMEOUT = 20_000
     const val READ_TIMEOUT = 15_000
 }

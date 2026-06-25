@@ -10,7 +10,7 @@ class ReadEmvReader {
 
     private val TAG = "ReadEmvReader"
 
-    fun readEmvCard(isoDep: IsoDep): CardData? {
+    fun readEmvCard(isoDep: IsoDep, amount: Double = 0.0): CardData? {
         try {
             var aid: String? = null
             
@@ -42,7 +42,12 @@ class ReadEmvReader {
             // 4. GPO
             val selectTlvs = flattenTlv(parseTlv(dropSw(selectResp)))
             val pdol = findTag(selectTlvs, "9F38")
-            val gpoResp = getResponse(isoDep, transceive(isoDep, buildGpo(pdol)))
+            
+            // Limpar sessão EMV para garantir novo UN se necessário, ou manter se for a mesma transação
+            // No caso de uma nova leitura, chamamos clear para renovar o 9F37
+            clearEmvSession()
+            
+            val gpoResp = getResponse(isoDep, transceive(isoDep, buildGpo(pdol, amount)))
             
             val allTlvs = mutableListOf<Tlv>()
             if (gpoResp != null && isSw9000(gpoResp)) {
@@ -66,9 +71,16 @@ class ReadEmvReader {
             // 6. FORÇAR GERAÇÃO DE CRIPTOGRAMA (GENERATE AC)
             // Comando essencial para obter o 9F26 (Cryptogram) e atualizar o 9F36 (ATC)
             Log.d(TAG, "Solicitando Generate AC para obter Cryptogram...")
+            
+            // CDOL1 Parsing (Opcional, mas recomendado para robustez)
+            // Se o cartão exigir dados específicos no Generate AC, eles estão no CDOL1 (Tag 8C)
+            val cdol1 = findTag(allTlvs, "8C")
+            val acData = fillDol(cdol1?.value ?: byteArrayOf(0x9F.toByte(), 0x02.toByte(), 0x06.toByte(), 0x9F.toByte(), 0x37.toByte(), 0x04.toByte()), amount)
+            
             val generateAc = byteArrayOf(
-                0x80.toByte(), 0xAE.toByte(), 0x80.toByte(), 0x00.toByte(), 0x00.toByte()
-            )
+                0x80.toByte(), 0xAE.toByte(), 0x80.toByte(), 0x00.toByte(), acData.size.toByte()
+            ) + acData
+            
             val acRespRaw = transceiveSafe(isoDep, generateAc)
             if (acRespRaw != null) {
                 val acResp = getResponse(isoDep, acRespRaw)
@@ -113,7 +125,22 @@ class ReadEmvReader {
                 atc = atc,
                 iad = findTag(allTlvs, "9F10")?.value?.toHex() ?: "",
                 aip = findTag(allTlvs, "82")?.value?.toHex() ?: "",
-                tvr = findTag(allTlvs, "95")?.value?.toHex() ?: ""
+                tvr = findTag(allTlvs, "95")?.value?.toHex() ?: "",
+                unpredictableNumber = getUnpredictableNumber().toHex(),
+                cid = findTag(allTlvs, "9F27")?.value?.toHex() ?: "",
+                transactionDate = findTag(allTlvs, "9A")?.value?.toHex() ?: "",
+                transactionType = findTag(allTlvs, "9C")?.value?.toHex() ?: "",
+                transactionCurrencyCode = findTag(allTlvs, "5F2A")?.value?.toHex() ?: "",
+                terminalCountryCode = findTag(allTlvs, "9F1A")?.value?.toHex() ?: "",
+                amountOther = findTag(allTlvs, "9F03")?.value?.toHex() ?: "",
+                terminalCapabilities = findTag(allTlvs, "9F33")?.value?.toHex() ?: "",
+                cvmResults = findTag(allTlvs, "9F34")?.value?.toHex() ?: "",
+                terminalType = findTag(allTlvs, "9F35")?.value?.toHex() ?: "",
+                transactionSequenceCounter = findTag(allTlvs, "9F41")?.value?.toHex() ?: "",
+                dfName = findTag(allTlvs, "84")?.value?.toHex() ?: "",
+                panSequenceNumber = findTag(allTlvs, "5F34")?.value?.toHex() ?: "",
+                track2 = track2Tlv?.value?.toHex() ?: "",
+                aid = aid ?: ""
             )
         } catch (e: Exception) {
             Log.e(TAG, "Erro na leitura EMV", e)

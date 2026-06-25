@@ -9,5 +9,8 @@ enum class ProductType(val label: String, val apiKey: String) {
     DEBIT("Débito",                   "DEBIT"),
     PIX("Pix",                        "PIX"),
     MANUAL("Venda Manual",            "MANUAL"),
-    CREDIT_A_VISTA("Crédito à vista", "CREDIT_A_VISTA") // Alias para evitar IllegalArgumentException durante migração
+    CREDIT_A_VISTA("Crédito à vista", "CREDIT_A_VISTA"); // Alias para evitar IllegalArgumentException durante migração
+
+    val isInstallment: Boolean
+        get() = name.startsWith("CREDIT_") && name != "CREDIT_AVISTA" && name != "CREDIT_A_VISTA"
 }

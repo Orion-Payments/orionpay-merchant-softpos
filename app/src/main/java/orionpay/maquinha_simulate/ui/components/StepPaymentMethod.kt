@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -116,7 +117,11 @@ fun StepPaymentMethod(
 
             // Lista de produtos
             Column(Modifier.padding(horizontal = 20.dp)) {
-                ProductType.entries.filter { it.apiKey != "PIX" }.forEach { pt ->
+                ProductType.entries.forEach { pt ->
+                    if (pt.apiKey == "MANUAL" || (pt.apiKey == "CREDIT_A_VISTA" && pt.name == "CREDIT_A_VISTA")) return@forEach
+                    // Esconde opções de parcelamento na lista geral se não for uma venda parcelada
+                    if (pt.isInstallment) return@forEach
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -143,6 +148,7 @@ fun StepPaymentMethod(
                                     Icon(
                                         when {
                                             pt.apiKey.contains("DEBIT") -> Icons.Default.AccountBalance
+                                            pt.apiKey == "PIX" -> Icons.Default.Bolt
                                             else -> Icons.Default.CreditCard
                                         },
                                         contentDescription = null,

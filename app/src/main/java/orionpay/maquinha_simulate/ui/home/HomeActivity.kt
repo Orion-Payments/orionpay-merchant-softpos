@@ -84,6 +84,7 @@ fun MainHomeScreen(onOptionClick: (ProductType) -> Unit) {
         Box(Modifier.padding(innerPadding)) {
             when (selectedItem) {
                 0 -> HomeScreen(onOptionClick)
+                2 -> orionpay.maquinha_simulate.ui.merchant.MerchantDashboard()
                 else -> PlaceholderScreen(items[selectedItem])
             }
         }

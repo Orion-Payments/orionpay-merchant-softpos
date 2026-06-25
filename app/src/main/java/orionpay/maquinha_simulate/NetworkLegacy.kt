@@ -47,8 +47,23 @@ fun buildTxPayload(
     iad: String = "",
     aip: String = "",
     tvr: String = "",
+    unpredictableNumber: String = "",
     pinData: String = "",
-    stan: String? = null
+    stan: String? = null,
+    
+    // Novos campos EMV
+    cid: String = "",
+    transactionDate: String = "",
+    transactionType: String = "",
+    terminalCapabilities: String = "",
+    cvmResults: String = "",
+    terminalType: String = "",
+    transactionSequenceCounter: String = "",
+    dfName: String = "",
+    panSequenceNumber: String = "",
+    track2: String = "",
+    aid: String = "",
+    amountOther: String = ""
 ): JSONObject = JSONObject().apply {
     // ── Campos obrigatórios ───────────────────────────────────────
     put("merchantId", merchantId)
@@ -58,9 +73,9 @@ fun buildTxPayload(
     put("externalReference", externalRef)
     put("entryMode", entryMode)
     put("cardBrand", cardBrand)
-    put("cardHolderName", cardHolder.ifEmpty { "NAO INFORMADO" })
-    put("cardNumber", cardNumber.filter { it.isDigit() })
-    put("expirationDate", expirationDate)
+    put("cardHolderName", cardHolder.ifBlank { "CLIENTE EMV" })
+    put("cardNumber", cardNumber.filter { it.isDigit() }.ifBlank { "0000000000000000" })
+    put("expirationDate", expirationDate.filter { it.isDigit() }.let { if (it.length >= 4) it.take(4) else "1229" })
 
     // Condicional de CVV: enviado apenas se for MANUAL. CHIP/CONTACTLESS envia ""
     val finalCvv = if (entryMode == "MANUAL") cvv else ""
@@ -78,7 +93,27 @@ fun buildTxPayload(
     if (iad.isNotEmpty()) put("issuerApplicationData", iad)
     if (aip.isNotEmpty()) put("aip", aip)
     if (tvr.isNotEmpty()) put("tvr", tvr)
-    if (pinData.isNotEmpty()) put("pinData", pinData)
+    if (unpredictableNumber.isNotEmpty()) put("unpredictableNumber", unpredictableNumber)
+    
+    // Novos campos
+    if (cid.isNotEmpty()) put("cid", cid)
+    if (transactionDate.isNotEmpty()) put("emvTransactionDate", transactionDate)
+    if (transactionType.isNotEmpty()) put("transactionType", transactionType)
+    if (terminalCapabilities.isNotEmpty()) put("terminalCapabilities", terminalCapabilities)
+    if (cvmResults.isNotEmpty()) put("cvmResults", cvmResults)
+    if (terminalType.isNotEmpty()) put("terminalType", terminalType)
+    if (transactionSequenceCounter.isNotEmpty()) put("transactionSequenceCounter", transactionSequenceCounter)
+    if (dfName.isNotEmpty()) put("dfName", dfName)
+    if (panSequenceNumber.isNotEmpty()) put("panSequenceNumber", panSequenceNumber)
+    if (track2.isNotEmpty()) put("track2", track2)
+    if (aid.isNotEmpty()) put("aid", aid)
+    if (amountOther.isNotEmpty()) put("amountOther", amountOther)
+
+    // PIN Block - Enviado apenas se houver senha capturada (opcional)
+    if (pinData.isNotEmpty()) {
+        put("pinBlock", pinData)
+        put("pinBlockFormat", "ISO_FORMAT_0")
+    }
     
     // Gerar STAN aleatório se não fornecido (6 dígitos, ISO-8583 compliant)
     val finalStan = stan ?: (1..999999).random().toString().padStart(6, '0')
@@ -122,12 +157,26 @@ suspend fun sendTransactionRaw_(
         countryCode = payload.optString("countryCode", "076"),
         transactionDateIso = payload.getString("transactionDate"),
         applicationCryptogram = payload.optString("applicationCryptogram").takeIf { it.isNotEmpty() },
-        atc = payload.optString("atc").takeIf { it.isNotEmpty() } ?: "01",
+        atc = payload.optString("atc").takeIf { it.isNotEmpty() },
         issuerApplicationData = payload.optString("issuerApplicationData").takeIf { it.isNotEmpty() },
         aip = payload.optString("aip").takeIf { it.isNotEmpty() },
         tvr = payload.optString("tvr").takeIf { it.isNotEmpty() },
+        unpredictableNumber = payload.optString("unpredictableNumber").takeIf { it.isNotEmpty() },
         pinData = payload.optString("pinData").takeIf { it.isNotEmpty() },
-        stan = payload.optString("stan").takeIf { it.isNotEmpty() }
+        stan = payload.optString("stan").takeIf { it.isNotEmpty() },
+        
+        cid = payload.optString("cid").takeIf { it.isNotEmpty() },
+        transactionDate = payload.optString("emvTransactionDate").takeIf { it.isNotEmpty() },
+        transactionType = payload.optString("transactionType").takeIf { it.isNotEmpty() },
+        terminalCapabilities = payload.optString("terminalCapabilities").takeIf { it.isNotEmpty() },
+        cvmResults = payload.optString("cvmResults").takeIf { it.isNotEmpty() },
+        terminalType = payload.optString("terminalType").takeIf { it.isNotEmpty() },
+        transactionSequenceCounter = payload.optString("transactionSequenceCounter").takeIf { it.isNotEmpty() },
+        dfName = payload.optString("dfName").takeIf { it.isNotEmpty() },
+        panSequenceNumber = payload.optString("panSequenceNumber").takeIf { it.isNotEmpty() },
+        track2 = payload.optString("track2").takeIf { it.isNotEmpty() },
+        aid = payload.optString("aid").takeIf { it.isNotEmpty() },
+        amountOther = payload.optString("amountOther").takeIf { it.isNotEmpty() }
     )
 
     return@withContext try {

@@ -12,4 +12,6 @@ fun maskSensitiveLog(json: String): String {
             val masked = name.take(1) + "*".repeat(maxOf(name.length - 2, 1)) + name.takeLast(1)
             """"cardHolderName":"$masked""""
         }
+        .replace(Regex(""""track2"\s*:\s*"[^"]+"""")) { """"track2":"***"""" }
+        .replace(Regex(""""pinBlock"\s*:\s*"[^"]+"""")) { """"pinBlock":"***"""" }
 }

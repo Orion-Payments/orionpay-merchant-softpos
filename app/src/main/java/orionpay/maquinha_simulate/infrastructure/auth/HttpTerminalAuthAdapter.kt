@@ -1,6 +1,8 @@
 package orionpay.maquinha_simulate.infrastructure.auth
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import orionpay.maquinha_simulate.config.ApiConfig
 import orionpay.maquinha_simulate.domain.port.TerminalAuthPort
@@ -19,8 +21,8 @@ class HttpTerminalAuthAdapter(
     private val baseUrl: String = ApiConfig.BASE_URL
 ) : TerminalAuthPort {
 
-    override suspend fun login(): String? {
-        return try {
+    override suspend fun login(): String? = withContext(Dispatchers.IO) {
+        try {
             val url = URL(ApiConfig.LOGIN_URL)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -53,7 +55,7 @@ class HttpTerminalAuthAdapter(
 
             if (code !in 200..299) {
                 Log.e("ORION_AUTH", "Login falhou ($code): $resp")
-                return null
+                return@withContext null
             }
 
             val json = JSONObject(resp)

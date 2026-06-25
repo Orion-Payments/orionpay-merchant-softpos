@@ -3,9 +3,7 @@ package orionpay.maquinha_simulate.utils
 import android.nfc.tech.IsoDep
 import orionpay.maquinha_simulate.data.model.Tlv
 
-// EMV / APDU helper utilities used by ReadEmvReader.
-// Implemented in a more robust way to handle multi-byte tags and PDOLs.
-// ---- Generic byte helpers ----
+// EMV / APDU helper utilities.
 fun ByteArray.toHex(): String = joinToString("") { "%02X".format(it) }
 
 fun ByteArray.toAscii(): String = map { b ->
@@ -29,7 +27,11 @@ fun getResponse(isoDep: IsoDep, resp: ByteArray): ByteArray {
     return currentResp
 }
 
-// ---- APDU builders ----
+fun apduSelectHex(aidHex: String): ByteArray {
+    val aidBytes = aidHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    val header = byteArrayOf(0x00, 0xA4.toByte(), 0x04, 0x00, aidBytes.size.toByte())
+    return header + aidBytes
+}
 
 fun apduSelect(aidAscii: String): ByteArray {
     val aidBytes = aidAscii.toByteArray(Charsets.US_ASCII)
@@ -37,57 +39,79 @@ fun apduSelect(aidAscii: String): ByteArray {
     return header + aidBytes
 }
 
-fun apduSelectHex(aidHex: String): ByteArray {
-    val aidBytes = aidHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    val header = byteArrayOf(0x00, 0xA4.toByte(), 0x04, 0x00, aidBytes.size.toByte())
-    return header + aidBytes
+// Persistir o Número Imprevisível para a sessão de leitura
+private var sessionUnpredictableNumber: ByteArray? = null
+
+fun getUnpredictableNumber(): ByteArray {
+    if (sessionUnpredictableNumber == null) {
+        sessionUnpredictableNumber = (1..4).map { (0..255).random().toByte() }.toByteArray()
+    }
+    return sessionUnpredictableNumber!!
 }
 
-fun buildGpo(pdolTlv: Tlv?): ByteArray {
-    val pdolValue = pdolTlv?.value ?: byteArrayOf()
+fun clearEmvSession() {
+    sessionUnpredictableNumber = null
+}
+
+/**
+ * Constrói os dados para um DOL (PDOL ou CDOL).
+ */
+fun fillDol(dolValue: ByteArray, amount: Double): ByteArray {
     val constructedData = mutableListOf<Byte>()
     
+    val amountCents = (amount * 100).toLong()
+    val amountHex = amountCents.toString().padStart(12, '0')
+    val amountBytes = amountHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    val now = java.time.LocalDate.now()
+    val dateBytes = "%02X%02X%02X".format(now.year % 100, now.monthValue, now.dayOfMonth)
+        .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
     var i = 0
-    while (i < pdolValue.size) {
+    while (i < dolValue.size) {
         var tagSize = 1
-        if ((pdolValue[i].toInt() and 0x1F) == 0x1F) {
+        if ((dolValue[i].toInt() and 0x1F) == 0x1F) {
             tagSize = 2
-            if (i + 1 < pdolValue.size && (pdolValue[i+1].toInt() and 0x80) != 0) tagSize = 3
+            if (i + 1 < dolValue.size && (dolValue[i+1].toInt() and 0x80) != 0) tagSize = 3
         }
-        val tagBytes = pdolValue.copyOfRange(i, minOf(i + tagSize, pdolValue.size))
-        val tagHex = tagBytes.toHex()
+        val tagHex = dolValue.copyOfRange(i, minOf(i + tagSize, dolValue.size)).toHex()
         i += tagSize
         
-        if (i >= pdolValue.size) break
-        val len = pdolValue[i].toInt() and 0xFF
+        if (i >= dolValue.size) break
+        val len = dolValue[i].toInt() and 0xFF
         i++
         
-        val mockData = when (tagHex) {
+        val data = when (tagHex) {
             "9F66" -> byteArrayOf(0x36, 0x00, 0x00, 0x00) // TTQ
-            "9F02" -> ByteArray(6) { 0x00 } // Amount
-            "9F03" -> ByteArray(6) { 0x00 } // Amount Other
-            "9F1A" -> byteArrayOf(0x00, 0x76) // Country Code (Brazil)
-            "5F2A" -> byteArrayOf(0x09, 0x86.toByte()) // Currency Code (BRL)
-            "9A"   -> byteArrayOf(0x24, 0x01, 0x01) // Date
-            "9C"   -> byteArrayOf(0x00) // Transaction Type
-            "9F37" -> byteArrayOf(0x12, 0x34, 0x56, 0x78) // Unpredictable Number
+            "9F02" -> amountBytes
+            "9F03" -> ByteArray(6) { 0x00 }
+            "9F1A" -> byteArrayOf(0x00, 0x76) // Brazil
+            "5F2A" -> byteArrayOf(0x09, 0x86.toByte()) // BRL
+            "9A"   -> dateBytes
+            "9C"   -> byteArrayOf(0x00) // Goods and Services
+            "9F37" -> getUnpredictableNumber()
+            "9F35" -> byteArrayOf(0x22) // Terminal Type (mPOS)
+            "9F1E" -> "ORIONPOS".toByteArray().copyOf(len)
+            "9F33" -> byteArrayOf(0xE0.toByte(), 0xB8.toByte(), 0xC8.toByte()) // Terminal Capabilities
+            "9F40" -> byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00) // Additional Terminal Capabilities
             else   -> ByteArray(len) { 0x00 }
         }
         
-        val actualData = if (mockData.size > len) mockData.copyOf(len) 
-                        else if (mockData.size < len) mockData + ByteArray(len - mockData.size)
-                        else mockData
-        
+        val actualData = if (data.size > len) data.copyOf(len) 
+                        else if (data.size < len) data + ByteArray(len - data.size)
+                        else data
         constructedData.addAll(actualData.toList())
     }
-    
-    val dataBytes = constructedData.toByteArray()
+    return constructedData.toByteArray()
+}
+
+fun buildGpo(pdolTlv: Tlv?, amount: Double): ByteArray {
+    val dataBytes = if (pdolTlv != null) fillDol(pdolTlv.value, amount) else byteArrayOf()
     val body = if (dataBytes.isEmpty()) {
         byteArrayOf(0x83.toByte(), 0x00)
     } else {
         byteArrayOf(0x83.toByte(), dataBytes.size.toByte()) + dataBytes
     }
-    
     return byteArrayOf(0x80.toByte(), 0xA8.toByte(), 0x00, 0x00, body.size.toByte()) + body
 }
 
@@ -95,8 +119,6 @@ fun buildReadRecord(record: Int, sfi: Int): ByteArray {
     val p2 = ((sfi shl 3) or 4).toByte()
     return byteArrayOf(0x00, 0xB2.toByte(), record.toByte(), p2, 0x00)
 }
-
-// ---- Transceive helpers ----
 
 fun transceive(isoDep: IsoDep, apdu: ByteArray): ByteArray = isoDep.transceive(apdu)
 
@@ -106,17 +128,15 @@ fun transceiveSafe(isoDep: IsoDep, apdu: ByteArray): ByteArray? = try {
     null
 }
 
-// ---- TLV parsing helpers ----
-
 fun parseTlv(data: ByteArray): List<Tlv> {
     val result = mutableListOf<Tlv>()
     var i = 0
     while (i < data.size) {
         val tagStart = i
         var b = data[i].toInt() and 0xFF
-        i++
-        if (b == 0x00 || b == 0xFF) continue
+        if (b == 0x00 || b == 0xFF) { i++; continue }
         
+        i++
         if ((b and 0x1F) == 0x1F) {
             while (i < data.size && (data[i].toInt() and 0x80) != 0) { i++ }
             i++
@@ -140,9 +160,7 @@ fun parseTlv(data: ByteArray): List<Tlv> {
         
         if (i + len > data.size) {
             val remaining = data.size - i
-            if (remaining > 0) {
-                result.add(Tlv(tag, remaining, data.copyOfRange(i, data.size)))
-            }
+            if (remaining > 0) result.add(Tlv(tag, remaining, data.copyOfRange(i, data.size)))
             break
         }
         
@@ -159,7 +177,7 @@ fun flattenTlv(list: List<Tlv>): List<Tlv> {
         result.add(tlv)
         if (tlv.tag.isNotEmpty()) {
             val firstByte = tlv.tag.substring(0, 2).toInt(16)
-            if ((firstByte and 0x20) != 0) { // Constructed tag
+            if ((firstByte and 0x20) != 0) {
                 result.addAll(flattenTlv(parseTlv(tlv.value)))
             }
         }
@@ -168,13 +186,6 @@ fun flattenTlv(list: List<Tlv>): List<Tlv> {
 }
 
 fun findTag(tlvs: List<Tlv>, tag: String): Tlv? = tlvs.firstOrNull { it.tag.equals(tag, ignoreCase = true) }
-
-fun findPan(tlvs: List<Tlv>): Tlv? =
-    findTag(tlvs, "5A") ?: findTag(tlvs, "4F")
-
-// ---- AFL helpers ----
-
-data class AflEntry(val sfi: Int, val start: Int, val end: Int)
 
 fun parseAfl(afl: ByteArray): List<AflEntry> {
     val res = mutableListOf<AflEntry>()
@@ -189,20 +200,18 @@ fun parseAfl(afl: ByteArray): List<AflEntry> {
     return res
 }
 
+data class AflEntry(val sfi: Int, val start: Int, val end: Int)
+
 fun extractAflFromGpo(gpoData: ByteArray): ByteArray? {
     val tlvs = flattenTlv(parseTlv(gpoData))
     return findTag(tlvs, "94")?.value
 }
-
-// ---- Track2 / PAN / CVV / expiry helpers ----
 
 fun extractPanFromTrack2(track2Hex: String): String {
     val idx = track2Hex.uppercase().indexOf('D')
     val panHex = if (idx > 0) track2Hex.substring(0, idx) else track2Hex
     return panHex.filter { it.isDigit() }
 }
-
-fun extractCvv2FromTrack2(track2Hex: String): String = ""
 
 fun formatExpiry(yyMmHex: String): String {
     return if (yyMmHex.length >= 4) {
@@ -212,7 +221,6 @@ fun formatExpiry(yyMmHex: String): String {
     } else ""
 }
 
-// ---- AID / brand helpers ----
 val knownAids: List<String> = listOf(
     "A0000000031010", "A0000000032010", "A0000000033010",
     "A0000000041010", "A0000000043060", "A0000000042203",
@@ -226,8 +234,6 @@ fun maskDisplay(number: String): String {
     return if (c.length >= 8) c.take(4) + " •••• •••• " + c.takeLast(4) else number
 }
 
-fun extractAid(tlvs: List<Tlv>): String? = findTag(tlvs, "4F")?.value?.toHex()
-
 fun identifyBrand(aid: String?): String {
     if (aid == null) return "UNKNOWN"
     val upper = aid.uppercase()
@@ -238,22 +244,6 @@ fun identifyBrand(aid: String?): String {
         upper.startsWith("A000000025") -> "AMEX"
         upper.startsWith("A000000152") -> "HIPERCARD"
         else -> "UNKNOWN"
-    }
-}
-
-fun interpretSw(resp: ByteArray): String {
-    if (resp.size < 2) return "Resposta vazia"
-    val sw1 = resp[resp.size-2].toInt() and 0xFF
-    val sw2 = resp[resp.size-1].toInt() and 0xFF
-    return when {
-        sw1 == 0x90 && sw2 == 0x00 -> "9000: Sucesso"
-        sw1 == 0x69 && sw2 == 0x85 -> "6985: Condições não satisfeitas (PDOL/Sequência)"
-        sw1 == 0x67 && sw2 == 0x00 -> "6700: Tamanho (Lc) incorreto"
-        sw1 == 0x6A && sw2 == 0x82 -> "6A82: Aplicação/Arquivo não encontrado"
-        sw1 == 0x6A && sw2 == 0x81 -> "6A81: Função não suportada"
-        sw1 == 0x6C -> "6C${"%02X".format(sw2)}: Tamanho (Le) incorreto"
-        sw1 == 0x61 -> "61${"%02X".format(sw2)}: Dados pendentes"
-        else -> "Status: ${"%02X%02X".format(sw1, sw2)}"
     }
 }
 

@@ -24,7 +24,7 @@ import orionpay.maquinha_simulate.domain.enums.TxState
 import orionpay.maquinha_simulate.ui.components.FlowHeader
 import orionpay.maquinha_simulate.ui.components.StepAmount
 import orionpay.maquinha_simulate.ui.components.StepNfcWait
-import orionpay.maquinha_simulate.ui.components.StepPaymentMethod
+import orionpay.maquinha_simulate.ui.components.StepPixQrCode
 import orionpay.maquinha_simulate.ui.components.StepProcessing
 import orionpay.maquinha_simulate.ui.components.StepResult
 import orionpay.maquinha_simulate.utils.isoNow
@@ -104,7 +104,21 @@ fun TransactionScreen(
                     iad            = card?.iad ?: "",
                     aip            = card?.aip ?: "",
                     tvr            = card?.tvr ?: "",
-                    pinData        = pinData
+                    unpredictableNumber = card?.unpredictableNumber ?: "",
+                    pinData        = pinData,
+                    
+                    cid            = card?.cid ?: "",
+                    transactionDate = card?.transactionDate ?: "",
+                    transactionType = card?.transactionType ?: "",
+                    terminalCapabilities = card?.terminalCapabilities ?: "",
+                    cvmResults     = card?.cvmResults ?: "",
+                    terminalType   = card?.terminalType ?: "",
+                    transactionSequenceCounter = card?.transactionSequenceCounter ?: "",
+                    dfName         = card?.dfName ?: "",
+                    panSequenceNumber = card?.panSequenceNumber ?: "",
+                    track2         = card?.track2 ?: "",
+                    aid            = card?.aid ?: "",
+                    amountOther    = card?.amountOther ?: ""
                 )
                 
                 // Usando a função centralizada que já usa os timeouts e IPs corretos
@@ -145,12 +159,22 @@ fun TransactionScreen(
     Box(Modifier.fillMaxSize().background(OrionWhite)) {
         Column(Modifier.fillMaxSize()) {
 
-            FlowHeader(currentStep = if (step >= 3) (if (step == 6) 3 else step - 1) else step, totalSteps = 4, onBack = {
+            val displayStep = when (step) {
+                1 -> 1
+                3, 7 -> 2
+                4, 5, 6 -> 3
+                else -> 1
+            }
+
+            FlowHeader(currentStep = displayStep, totalSteps = 3, onBack = {
                 when {
                     step == 6            -> step = 3
                     step == 3            -> step = 1
-                    step > 1 && step < 4 -> step--
+                    step == 7            -> step = 1
+                    step == 4            -> step = (if (selectedProduct == ProductType.PIX) 7 else 3)
+                    step == 5            -> onBack()
                     step == 1            -> onBack()
+                    else                 -> step = 1
                 }
             })
 
@@ -162,32 +186,48 @@ fun TransactionScreen(
                     onDigit         = { if (rawAmount.length < 9) rawAmount += it },
                     onBackspace     = { if (rawAmount.isNotEmpty()) rawAmount = rawAmount.dropLast(1) },
                     onClear         = { rawAmount = "" },
-                    onNext          = { if (amountDouble > 0) step = 2 },
+                    onNext          = { 
+                        if (amountDouble > 0) {
+                            step = if (selectedProduct == ProductType.PIX) 7 else 3
+                        }
+                    },
                     onBack          = onBack
                 )
 
-                2 -> StepPaymentMethod(
-                    amount   = formattedAmount,
-                    selected = selectedProduct,
-                    onSelect = { selectedProduct = it },
-                    onNext   = { step = 3 },
-                    onBack   = { step = 1 }
+                7 -> StepPixQrCode(
+                    amount = formattedAmount,
+                    onConfirm = { 
+                        // Simula sucesso direto para Pix
+                        txResult = TxResult(
+                            state = TxState.SUCCESS,
+                            message = "Pagamento Pix Recebido",
+                            nsu = "PIX${System.currentTimeMillis() % 100000}",
+                            authCode = "ORIONPIX"
+                        )
+                        step = 5
+                    },
+                    onBack = { step = 1 }
                 )
 
-                3 -> StepNfcWait(
-                    amount   = formattedAmount,
-                    product  = selectedProduct,
-                    status   = nfcStatus,
-                    hasError = nfcError,
-                    onNext   = { step = if (amountDouble > 200.0) 6 else 4 }
-                )
+                3 -> {
+                    // Sincroniza o valor com o barramento NFC para gerar o ARQC correto no cartão
+                    LaunchedEffect(amountDouble) {
+                        orionpay.maquinha_simulate.NfcDataBus.amountToRead = amountDouble
+                    }
+                    StepNfcWait(
+                        amount   = formattedAmount,
+                        product  = selectedProduct,
+                        status   = nfcStatus,
+                        hasError = nfcError,
+                        onNext   = { step = if (amountDouble > 200.0) 6 else 4 }
+                    )
+                }
 
                 6 -> orionpay.maquinha_simulate.ui.components.StepPin(
                     amount = formattedAmount,
                     onConfirm = { typedPin ->
-                        // Mock homologação: se "1234", envia bloco fixo; caso contrário, gera ISO Format 0
-                        pinData = if (typedPin == "1234") "1234567890ABCDEF" 
-                                  else orionpay.maquinha_simulate.utils.PinBlockUtil.format0(typedPin, cardData?.panRaw ?: "")
+                        // Removido mock de PIN estático para evitar erro 96 no autorizador
+                        pinData = orionpay.maquinha_simulate.utils.PinBlockUtil.format0(typedPin, cardData?.panRaw ?: "")
                         step = 4
                     }
                 )
